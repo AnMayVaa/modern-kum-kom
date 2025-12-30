@@ -161,7 +161,18 @@ export default function Home() {
     }
   }, [isMyReady, isOpponentReady]); // ต้องเฝ้าดูทั้ง 2 ค่านี้
 
-  if (view === 'GAME') return <Board mode="MULTI" roomInfo={roomData} onBack={() => window.location.reload()} />;
+  if (view === 'GAME') {
+    // ตรวจสอบว่าถ้า ID คือ SOLO ให้ส่งโหมด SOLO ไปจริงๆ
+    const gameMode = roomData?.id === 'SOLO_PLAY' || roomData?.id === 'SOLO' ? 'SOLO' : 'MULTI';
+    
+    return (
+      <Board 
+        mode={gameMode} 
+        roomInfo={roomData} 
+        onBack={() => window.location.reload()} 
+      />
+    );
+  }
 
   return (
     <main className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6 text-slate-800 font-sans">

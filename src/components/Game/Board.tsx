@@ -354,7 +354,9 @@ export default function Board({ mode, roomInfo, onBack }: any) {
         <div className="inline-flex items-center gap-2 mb-1">
           <span className={`w-2 h-2 rounded-full animate-ping ${currentPlayer === playerRole ? 'bg-emerald-500' : 'bg-rose-500'}`} />
           <p className={`text-[11px] font-black uppercase tracking-[0.2em] ${currentPlayer === playerRole ? 'text-emerald-600' : 'text-rose-600'}`}>
-            {currentPlayer === playerRole ? "Your Turn" : (mode === 'SOLO' ? "Bot Thinking..." : "Waiting for P2...")}
+            {currentPlayer === playerRole 
+              ? "Your Turn" 
+              : (mode === 'SOLO' ? "🤖 Bot Thinking..." : "⌛ Waiting for Opponent...")}
           </p>
         </div>
         <div className="flex gap-8 items-center justify-center">
