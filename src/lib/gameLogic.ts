@@ -65,3 +65,11 @@ export const findValidWords = (grid: (string | null)[][], history: { r: number, 
 
   return Array.from(wordMap.values());
 };
+
+export const calculateBingoBonus = (tilesCount: number): number => {
+  if (tilesCount === 6) return 40;
+  if (tilesCount === 7) return 50;
+  if (tilesCount === 8) return 70;
+  if (tilesCount >= 9) return 90;
+  return 0;
+};
