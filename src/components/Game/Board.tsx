@@ -320,6 +320,16 @@ export default function Board({ mode, roomInfo, onBack }: any) {
     }
   };
 
+  const handleShuffle = () => {
+    if (currentPlayer !== playerRole) return;
+    
+    // สุ่มจัดเรียง Array ของเบี้ยในมือใหม่
+    const shuffled = [...p1Rack].sort(() => Math.random() - 0.5);
+    
+    setP1Rack(shuffled);
+    setSelectedRackIndex(null); // ล้างการเลือกเบี้ยตัวเก่าเพื่อไม่ให้สับสน
+  };
+
   return (
     <div className="flex flex-col items-center gap-4 p-4 bg-slate-50 min-h-screen font-sans selection:bg-indigo-100">
       <GameHeader mode={mode} currentPlayer={currentPlayer} playerRole={playerRole} scores={scores} tileBagLength={tileBag.length} roomInfo={roomInfo} showBotRack={showBotRack} setShowBotRack={setShowBotRack} onBack={onBack} />
@@ -340,10 +350,10 @@ export default function Board({ mode, roomInfo, onBack }: any) {
         selectedIndex={selectedRackIndex} 
         currentPlayer={currentPlayer} 
         playerRole={playerRole} 
-        // 2. เปลี่ยนมาเรียกใช้ฟังก์ชัน handleRackSelect แทน
         onSelect={handleRackSelect} 
         onRecall={handleRecall} 
-        onExchange={handleExchange} 
+        onExchange={handleExchange}
+        onShuffle={handleShuffle} // ส่งฟังก์ชันไปใช้งาน
         onSubmit={handleSubmit} 
       />
       
