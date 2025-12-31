@@ -299,6 +299,27 @@ export default function Board({ mode, roomInfo, onBack }: any) {
     setDiacriticMenu(null);
   };
 
+  const handleRackSelect = (index: number) => {
+    if (currentPlayer !== playerRole) return;
+
+    if (selectedRackIndex === null) {
+      // กรณีที่ 1: ยังไม่มีการเลือก ให้เลือกเบี้ยตัวนี้
+      setSelectedRackIndex(index);
+    } else if (selectedRackIndex === index) {
+      // กรณีที่ 2: กดตัวเดิมซ้ำ ให้ยกเลิกการเลือก
+      setSelectedRackIndex(null);
+    } else {
+      // กรณีที่ 3: กดเบี้ยตัวที่สองในขณะที่มีตัวแรกเลือกอยู่ -> ทำการสลับที่ (Swap)
+      const newRack = [...p1Rack];
+      const temp = newRack[selectedRackIndex];
+      newRack[selectedRackIndex] = newRack[index];
+      newRack[index] = temp;
+      
+      setP1Rack(newRack);
+      setSelectedRackIndex(null); // ล้างการเลือกหลังสลับเสร็จ
+    }
+  };
+
   return (
     <div className="flex flex-col items-center gap-4 p-4 bg-slate-50 min-h-screen font-sans selection:bg-indigo-100">
       <GameHeader mode={mode} currentPlayer={currentPlayer} playerRole={playerRole} scores={scores} tileBagLength={tileBag.length} roomInfo={roomInfo} showBotRack={showBotRack} setShowBotRack={setShowBotRack} onBack={onBack} />
@@ -319,9 +340,10 @@ export default function Board({ mode, roomInfo, onBack }: any) {
         selectedIndex={selectedRackIndex} 
         currentPlayer={currentPlayer} 
         playerRole={playerRole} 
-        onSelect={setSelectedRackIndex} 
+        // 2. เปลี่ยนมาเรียกใช้ฟังก์ชัน handleRackSelect แทน
+        onSelect={handleRackSelect} 
         onRecall={handleRecall} 
-        onExchange={handleExchange} // ส่ง Prop นี้ไป
+        onExchange={handleExchange} 
         onSubmit={handleSubmit} 
       />
       
