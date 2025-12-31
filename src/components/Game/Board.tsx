@@ -198,8 +198,7 @@ export default function Board({ mode, roomInfo, onBack }: any) {
   };
 
   return (
-    <div className="flex flex-col items-center gap-4 p-4 bg-slate-50 min-h-screen font-sans selection:bg-indigo-100">
-      <GameHeader 
+      <div className="flex flex-col items-center justify-start gap-4 p-4 bg-slate-50 min-h-screen font-sans selection:bg-indigo-100 overflow-x-hidden">      <GameHeader 
         mode={mode} 
         currentPlayer={game.currentPlayer} 
         playerRole={playerRole} 
@@ -220,14 +219,22 @@ export default function Board({ mode, roomInfo, onBack }: any) {
         onCellClick={handleCellClick} 
       />
 
-      {showBotRack && (
-        <div className="flex gap-2 p-3 bg-rose-50 rounded-2xl border-2 border-dashed border-rose-200 animate-in fade-in slide-in-from-bottom-2">
+    <div className="w-full h-24 flex items-center justify-center shrink-0"> 
+      {/* h-24 คือการจองพื้นที่ไว้ประมาณ 96px เพื่อให้ Header และ Board ไม่ขยับ */}
+      {showBotRack ? (
+        <div className="flex gap-2 p-3 bg-rose-50 rounded-2xl border-2 border-dashed border-rose-200 animate-in fade-in zoom-in duration-200">
           <span className="text-[10px] font-black text-rose-400 uppercase self-center px-2">Bot's Hand:</span>
           {game.botRack.map((t, i) => (
-            <div key={i} className="w-8 h-8 bg-white border border-rose-100 rounded-lg flex items-center justify-center text-sm text-rose-300 font-bold shadow-sm italic">{t === '0' ? ' ' : t}</div>
+            <div key={i} className="w-8 h-8 bg-white border border-rose-100 rounded-lg flex items-center justify-center text-sm text-rose-300 font-bold shadow-sm italic">
+              {t === '0' ? ' ' : t}
+            </div>
           ))}
         </div>
+      ) : (
+        // แสดงช่องว่างที่มีขนาดเท่ากันเพื่อให้ Layout ไม่ขยับ
+        <div className="h-full w-full" /> 
       )}
+    </div>
 
       <PlayerControls 
         rack={game.p1Rack} 
