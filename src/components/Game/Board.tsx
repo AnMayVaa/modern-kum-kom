@@ -229,21 +229,25 @@ export default function Board({ mode, roomInfo, onBack }: any) {
 
     const numToExchange = turnHistory.length;
 
-    // กรณีที่ 1: มีเบี้ยที่เพิ่งวางบนบอร์ด (Exchange)
+    // กรณีที่ 1: มีเบี้ยที่วางอยู่บนบอร์ด (Exchange)
     if (numToExchange > 0) {
+      // เพิ่มการถามยืนยันสำหรับ Exchange
+      const confirmExchange = confirm(`ต้องการแลกเบี้ยทั้ง ${numToExchange} ตัวที่วางอยู่บนกระดานใช่หรือไม่?\n(คุณจะได้รับใบใหม่และสลับตาให้ฝ่ายตรงข้ามทันที)`);
+      if (!confirmExchange) return;
+
       if (tileBag.length < numToExchange) {
         return alert("เบี้ยในถุงมีไม่พอสำหรับแลก!");
       }
 
-      // 1. เก็บเบี้ยที่วางอยู่กลับเข้าถุงกลาง
+      // 1. เก็บเบี้ยคืนถุงกลางและสุ่มใหม่
       const tilesToReturn = turnHistory.map(h => h.isBlank ? '0' : h.char);
-      const newBag = [...tileBag, ...tilesToReturn].sort(() => Math.random() - 0.5); // ผสมถุงใหม่
+      const newBag = [...tileBag, ...tilesToReturn].sort(() => Math.random() - 0.5);
 
-      // 2. จั่วใบใหม่ขึ้นมือตามจำนวนที่แลก
+      // 2. จั่วใบใหม่ตามจำนวน
       const drawnTiles = newBag.slice(0, numToExchange);
       const finalBag = newBag.slice(numToExchange);
 
-      // 3. ล้างเบี้ยออกจากบอร์ด
+      // 3. ล้างกระดานส่วนที่วางค้างไว้
       const nextGrid = [...grid];
       const nextBlanks = new Set(blankTiles);
       turnHistory.forEach(h => {
@@ -262,27 +266,37 @@ export default function Board({ mode, roomInfo, onBack }: any) {
     } 
     // กรณีที่ 2: ไม่มีเบี้ยบนบอร์ด (Skip)
     else {
-      if (!confirm("ต้องการข้ามตานี้ใช่หรือไม่?")) return;
+      const confirmSkip = confirm("คุณยังไม่ได้วางเบี้ยบนกระดาน\nต้องการข้ามตานี้ (Skip Turn) ใช่หรือไม่?");
+      if (!confirmSkip) return;
     }
 
-    // 5. จบตาและสลับผู้เล่น
+    // 5. จบตาและสลับผู้เล่น (Common Logic)
     if (mode === 'MULTI' && roomInfo) {
-      // แจ้งคู่แข่งในโหมด MULTI ว่าเราข้าม/แลก (ส่ง Move ว่าง)
       await fetch('/api/multiplayer/move', {
         method: 'POST',
         body: JSON.stringify({
           roomId: roomInfo.id,
-          newGrid: grid, // ส่ง grid เดิม
-          newScores: scores, // ส่งคะแนนเดิม
+          newGrid: grid,
+          newScores: scores,
           senderRole: playerRole,
-          words: [], // ไม่มีคำที่ลง
+          words: [],
           nextTurn: playerRole === 1 ? 2 : 1
         })
       });
     }
-    
-    setCurrentPlayer(mode === 'SOLO' ? 2 : (playerRole === 1 ? 2 : 1));
-    setTurnCount(prev => prev + 1);
+  
+  setCurrentPlayer(mode === 'SOLO' ? 2 : (playerRole === 1 ? 2 : 1));
+  setTurnCount(prev => prev + 1);
+};
+
+  const handleCloseModals = () => {
+    if (blankMenu) {
+      // ถ้าปิดเมนูเบี้ยว่างโดยยังไม่ได้วาง ให้คืนเลข '0' กลับเข้ามือ
+      setP1Rack(prev => [...prev, '0']);
+    }
+    // ปิดเมนูทั้งสองแบบ
+    setBlankMenu(null);
+    setDiacriticMenu(null);
   };
 
   return (
@@ -311,11 +325,22 @@ export default function Board({ mode, roomInfo, onBack }: any) {
         onSubmit={handleSubmit} 
       />
       
-      <GameModals blankMenu={blankMenu} diacriticMenu={diacriticMenu} isOpponentLeft={isOpponentLeft} onSelect={(char, isBlank) => {
+      <GameModals 
+        blankMenu={blankMenu} 
+        diacriticMenu={diacriticMenu} 
+        isOpponentLeft={isOpponentLeft} 
+        onSelect={(char, isBlank) => {
           const t = blankMenu || diacriticMenu;
-          if (t) placeTile(t.r, t.c, char, isBlank);
-          setBlankMenu(null); setDiacriticMenu(null);
-        }} onClose={() => {setBlankMenu(null); setDiacriticMenu(null);}} />
+          if (t) {
+            placeTile(t.r, t.c, char, isBlank);
+            // ถ้าเลือกสำเร็จ ให้ปิดเมนูโดยไม่ต้องคืนเบี้ย (เพราะ placeTile ทำงานไปแล้ว)
+            setBlankMenu(null); 
+            setDiacriticMenu(null);
+          }
+        }} 
+        // 2. เปลี่ยนมาเรียกใช้ handleCloseModals ที่เราสร้างขึ้น
+        onClose={handleCloseModals} 
+      />
     </div>
   );
 }
