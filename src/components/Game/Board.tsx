@@ -224,6 +224,67 @@ export default function Board({ mode, roomInfo, onBack }: any) {
     }
   };
 
+  const handleExchange = async () => {
+    if (currentPlayer !== playerRole) return;
+
+    const numToExchange = turnHistory.length;
+
+    // กรณีที่ 1: มีเบี้ยที่เพิ่งวางบนบอร์ด (Exchange)
+    if (numToExchange > 0) {
+      if (tileBag.length < numToExchange) {
+        return alert("เบี้ยในถุงมีไม่พอสำหรับแลก!");
+      }
+
+      // 1. เก็บเบี้ยที่วางอยู่กลับเข้าถุงกลาง
+      const tilesToReturn = turnHistory.map(h => h.isBlank ? '0' : h.char);
+      const newBag = [...tileBag, ...tilesToReturn].sort(() => Math.random() - 0.5); // ผสมถุงใหม่
+
+      // 2. จั่วใบใหม่ขึ้นมือตามจำนวนที่แลก
+      const drawnTiles = newBag.slice(0, numToExchange);
+      const finalBag = newBag.slice(numToExchange);
+
+      // 3. ล้างเบี้ยออกจากบอร์ด
+      const nextGrid = [...grid];
+      const nextBlanks = new Set(blankTiles);
+      turnHistory.forEach(h => {
+        nextGrid[h.r][h.c] = null;
+        nextBlanks.delete(`${h.r},${h.c}`);
+      });
+
+      // 4. อัปเดต State
+      setGrid(nextGrid);
+      setBlankTiles(nextBlanks);
+      setP1Rack([...p1Rack, ...drawnTiles]);
+      setTileBag(finalBag);
+      setTurnHistory([]);
+      
+      alert(`ทำการแลกเบี้ย ${numToExchange} ตัวเสร็จสิ้น`);
+    } 
+    // กรณีที่ 2: ไม่มีเบี้ยบนบอร์ด (Skip)
+    else {
+      if (!confirm("ต้องการข้ามตานี้ใช่หรือไม่?")) return;
+    }
+
+    // 5. จบตาและสลับผู้เล่น
+    if (mode === 'MULTI' && roomInfo) {
+      // แจ้งคู่แข่งในโหมด MULTI ว่าเราข้าม/แลก (ส่ง Move ว่าง)
+      await fetch('/api/multiplayer/move', {
+        method: 'POST',
+        body: JSON.stringify({
+          roomId: roomInfo.id,
+          newGrid: grid, // ส่ง grid เดิม
+          newScores: scores, // ส่งคะแนนเดิม
+          senderRole: playerRole,
+          words: [], // ไม่มีคำที่ลง
+          nextTurn: playerRole === 1 ? 2 : 1
+        })
+      });
+    }
+    
+    setCurrentPlayer(mode === 'SOLO' ? 2 : (playerRole === 1 ? 2 : 1));
+    setTurnCount(prev => prev + 1);
+  };
+
   return (
     <div className="flex flex-col items-center gap-4 p-4 bg-slate-50 min-h-screen font-sans selection:bg-indigo-100">
       <GameHeader mode={mode} currentPlayer={currentPlayer} playerRole={playerRole} scores={scores} tileBagLength={tileBag.length} roomInfo={roomInfo} showBotRack={showBotRack} setShowBotRack={setShowBotRack} onBack={onBack} />
@@ -239,7 +300,16 @@ export default function Board({ mode, roomInfo, onBack }: any) {
         </div>
       )}
 
-      <PlayerControls rack={p1Rack} selectedIndex={selectedRackIndex} currentPlayer={currentPlayer} playerRole={playerRole} onSelect={setSelectedRackIndex} onRecall={handleRecall} onSubmit={handleSubmit} />
+      <PlayerControls 
+        rack={p1Rack} 
+        selectedIndex={selectedRackIndex} 
+        currentPlayer={currentPlayer} 
+        playerRole={playerRole} 
+        onSelect={setSelectedRackIndex} 
+        onRecall={handleRecall} 
+        onExchange={handleExchange} // ส่ง Prop นี้ไป
+        onSubmit={handleSubmit} 
+      />
       
       <GameModals blankMenu={blankMenu} diacriticMenu={diacriticMenu} isOpponentLeft={isOpponentLeft} onSelect={(char, isBlank) => {
           const t = blankMenu || diacriticMenu;
