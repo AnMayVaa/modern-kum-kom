@@ -13,7 +13,16 @@ const pusher = new Pusher({
 let waitingRoomId: string | null = null; // คิวสำหรับสุ่มห้อง
 
 export async function POST(req: Request) {
-  const { action, roomId, role, playerReady } = await req.json();
+  const body = await req.json();
+  const { action, roomId, role, gameData } = body;
+
+  // เพิ่ม Action นี้เพื่อกระจายข่าวสารการเปลี่ยนตา/แลกเบี้ย
+  if (action === 'update_game') {
+    await pusher.trigger(`room-${roomId}`, 'game-updated', {
+      role,
+      gameData // ข้อมูลสถานะเกมล่าสุด
+    });
+  }
 
   // 1. ระบบสุ่มหาคู่ (Random Match)
   if (action === 'find_match') {
@@ -47,10 +56,10 @@ export async function POST(req: Request) {
     }
 
   // 4. ระบบแจ้งคนออกเกม
-  if (action === 'player_left') {
+  if (action === 'player_left' || action === 'leave_room') {
     await pusher.trigger(`room-${roomId}`, 'opponent-disconnected', { role });
     return NextResponse.json({ success: true });
   }
 
-  return NextResponse.json({ success: false });
+  return NextResponse.json({ success: true });
 }

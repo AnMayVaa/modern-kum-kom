@@ -12,15 +12,47 @@ import { BoardGrid } from './parts/BoardGrid';
 import { PlayerControls } from './parts/PlayerControls';
 import { GameModals } from './parts/GameModals';
 
-export default function Board({ mode, roomInfo, onBack }: any) {
+import Pusher from 'pusher-js';
+
+export default function Board({ 
+  mode, 
+  roomInfo, 
+  onBack, 
+  playerName: playerNameProp,
+  opponentName: opponentNameProp 
+}: any) {
   const playerRole = roomInfo?.role || 1;
   const [isOpponentLeft, setIsOpponentLeft] = useState(false);
   const [showBotRack, setShowBotRack] = useState(false);
 
-  // 1. เรียกใช้ Game Engine (จัดการ State และการกระทำพื้นฐาน)
   const game = useGameActions(mode, roomInfo, playerRole);
 
-  // 2. เรียกใช้ระบบ Multiplayer (Pusher Sync)
+  const playerName = playerNameProp || "YOU"; 
+  const opponentName = opponentNameProp || (mode === 'SOLO' ? 'BOT' : 'Opponent');
+
+  useEffect(() => {
+    if (mode !== 'MULTI' || !roomInfo?.id) return;
+
+    const pusher = new Pusher(process.env.NEXT_PUBLIC_PUSHER_KEY!, { cluster: 'ap1' });
+    const channel = pusher.subscribe(`room-${roomInfo.id}`);
+
+    channel.bind('game-updated', (data: any) => {
+      // ถ้าคู่แข่งเป็นคนส่งข้อมูลมา ให้เราอัปเดตตาม
+      if (data.role !== playerRole) {
+        console.log("คู่แข่งเปลี่ยนตา/แลกเบี้ยแล้ว");
+        game.setGrid(data.gameData.grid);
+        game.setCurrentPlayer(data.gameData.currentPlayer);
+        game.setTileBag(data.gameData.tileBag);
+        game.setScores(data.gameData.scores);
+      }
+    });
+
+    return () => {
+      channel.unbind_all();
+      pusher.unsubscribe(`room-${roomInfo.id}`);
+    };
+  }, [roomInfo?.id]);
+
   useMultiplayer(
     mode, 
     roomInfo, 
@@ -31,6 +63,73 @@ export default function Board({ mode, roomInfo, onBack }: any) {
     game.setTurnCount, 
     setIsOpponentLeft
   );
+
+  // --- [จุดแก้ไขเพิ่ม]: ระบบแจ้งเตือน Exchange/Skip ไปยังคู่แข่ง ---
+  const handleExchange = async (confirmCall: (msg: string) => boolean) => {
+    if (game.currentPlayer !== playerRole) return;
+    const numToExchange = game.turnHistory.length;
+    
+    let nextGrid = game.grid;
+    let nextBag = game.tileBag;
+    let isActionConfirmed = false;
+
+    if (numToExchange > 0) {
+        if (!confirmCall(`ต้องการแลกเบี้ย ${numToExchange} ตัวใช่หรือไม่?`)) return;
+        if (game.tileBag.length < numToExchange) return alert("เบี้ยในถุงไม่พอ!");
+
+        // Logic แลกเบี้ย (จั่วใหม่ -> คืนของเก่า -> Shuffle)
+        const drawnTiles = game.tileBag.slice(0, numToExchange);
+        const remainingBag = game.tileBag.slice(numToExchange);
+        const tilesToReturn = game.turnHistory.map(h => h.isBlank ? '0' : h.char);
+        const finalBag = [...remainingBag, ...tilesToReturn].sort(() => Math.random() - 0.5);
+
+        const updatedGrid = [...game.grid];
+        const nextBlanks = new Set(game.blankTiles);
+        game.turnHistory.forEach(h => {
+          updatedGrid[h.r][h.c] = null;
+          nextBlanks.delete(`${h.r},${h.c}`);
+        });
+
+        // อัปเดตเครื่องตัวเอง
+        game.setGrid(updatedGrid);
+        game.setBlankTiles(nextBlanks);
+        game.setP1Rack(prev => [...prev, ...drawnTiles]);
+        game.setTileBag(finalBag);
+        game.setTurnHistory([]);
+        
+        nextGrid = updatedGrid;
+        nextBag = finalBag;
+        isActionConfirmed = true;
+    } else {
+        if (!confirmCall("ต้องการข้ามตานี้ใช่หรือไม่?")) return;
+        isActionConfirmed = true;
+    }
+
+    if (isActionConfirmed) {
+        const nextTurn = mode === 'SOLO' ? 2 : (playerRole === 1 ? 2 : 1);
+        
+        // --- ยิงสัญญาณบอกคู่แข่ง ---
+        if (mode === 'MULTI' && roomInfo?.id) {
+            await fetch('/api/multiplayer/match', {
+                method: 'POST',
+                body: JSON.stringify({
+                    action: 'update_game',
+                    roomId: roomInfo.id,
+                    role: playerRole,
+                    gameData: {
+                        grid: nextGrid,
+                        currentPlayer: nextTurn,
+                        tileBag: nextBag,
+                        scores: game.scores
+                    }
+                })
+            });
+        }
+        
+        game.setCurrentPlayer(nextTurn);
+        game.setTurnCount((prev: number) => prev + 1);
+    }
+  };
 
   // --- BOT EXECUTION LOGIC (Surgical Cleanup + Bingo) ---
   useEffect(() => {
@@ -56,22 +155,18 @@ export default function Board({ mode, roomInfo, onBack }: any) {
               info.coords.forEach(coord => botValidCoords.add(coord));
             });
 
-            // คำนวณ Bingo Bonus สำหรับบอท
             const bingoBonus = calculateBingoBonus(result.placements.length);
             const finalScore = baseScore + bingoBonus;
 
-            // Surgical Cleanup: เก็บเฉพาะเบี้ยที่ประกอบเป็นคำถูกต้อง
             const cleanedGrid = Array(31).fill(null).map(() => Array(15).fill(null));
             botValidCoords.forEach(coord => {
               const [r, c] = coord.split(',').map(Number);
               cleanedGrid[r][c] = tempGrid[r][c];
             });
 
-            // อัปเดต State ผ่าน Game Engine
             game.setGrid(cleanedGrid);
             game.setScores((prev: any) => ({ ...prev, p2: prev.p2 + finalScore }));
 
-            // จัดการเบี้ยบอทและจั่วใหม่
             const newBotRack = [...game.botRack];
             result.placements.forEach((p: Placement) => {
               const idx = newBotRack.indexOf(p.char);
@@ -82,9 +177,9 @@ export default function Board({ mode, roomInfo, onBack }: any) {
             game.setBotRack([...newBotRack, ...drawn]);
 
             const allWords = botWordsInfo.map(i => i.word).join(", ");
-            alert(`🤖 บอทลงคำว่า: ${allWords}\nได้แต้ม: ${finalScore}${bingoBonus > 0 ? ` (+${bingoBonus} Bingo!)` : ''}`);
+            alert(`🤖 บอทลงคำว่า: ${allWords}\nได้แต้ม: ${finalScore}`);
           } else {
-            alert("บอทไม่มีคำจะลง... บอทขอผ่าน");
+            alert("บอทขอผ่าน");
           }
         } catch (err) {
           console.error("Bot Error:", err);
@@ -116,8 +211,6 @@ export default function Board({ mode, roomInfo, onBack }: any) {
 
   const handleSubmit = async () => {
     if (game.turnHistory.length === 0) return;
-
-    // ตรวจสอบเงื่อนไขพื้นฐาน
     const touchesStar = game.turnHistory.some(h => h.r === 15 && h.c === 7);
     if (game.turnCount === 0 && !touchesStar) return alert("ตาแรกต้องทับดาว!");
 
@@ -145,11 +238,9 @@ export default function Board({ mode, roomInfo, onBack }: any) {
       }
 
       if (!hasInvalid && validatedWords.length > 0) {
-        // คำนวณ Bingo Bonus
         const bingoBonus = calculateBingoBonus(game.turnHistory.length);
         const totalScore = turnTotal + bingoBonus;
 
-        // Cleanup กระดาน
         const finalGrid = Array(31).fill(null).map(() => Array(15).fill(null));
         const finalBlanks = new Set<string>();
         validCoords.forEach(coord => {
@@ -167,7 +258,6 @@ export default function Board({ mode, roomInfo, onBack }: any) {
         game.setScores(newScores);
         game.setBlankTiles(finalBlanks);
         
-        // จั่วเบี้ยใหม่
         const numUsed = game.turnHistory.length;
         game.setP1Rack([...game.p1Rack, ...game.tileBag.slice(0, numUsed)]);
         game.setTileBag((prev: string[]) => prev.slice(numUsed));
@@ -175,7 +265,7 @@ export default function Board({ mode, roomInfo, onBack }: any) {
         game.setTurnHistory([]);
         game.setTurnCount((prev: number) => prev + 1);
 
-        alert(`✅ สำเร็จ! คำที่ได้: ${validatedWords.join(', ')}\nรวม: ${totalScore} คะแนน${bingoBonus > 0 ? ` (+${bingoBonus} Bingo!)` : ''}`);
+        alert(`✅ ${validatedWords.join(', ')} : ${totalScore} คะแนน`);
 
         if (mode === 'MULTI' && roomInfo) {
           await fetch('/api/multiplayer/move', {
@@ -198,16 +288,18 @@ export default function Board({ mode, roomInfo, onBack }: any) {
   };
 
   return (
-      <div className="flex flex-col items-center justify-start gap-4 p-4 bg-slate-50 min-h-screen font-sans selection:bg-indigo-100 overflow-x-hidden">      <GameHeader 
-        mode={mode} 
-        currentPlayer={game.currentPlayer} 
+    <div className="flex flex-col items-center justify-start gap-4 p-4 bg-slate-50 min-h-screen font-sans selection:bg-indigo-100 overflow-x-hidden">      
+      <GameHeader 
+        mode={mode}
+        playerName={playerName}
+        opponentName={opponentName}
         playerRole={playerRole} 
+        currentPlayer={game.currentPlayer}
         scores={game.scores} 
         tileBagLength={game.tileBag.length} 
-        roomInfo={roomInfo} 
         showBotRack={showBotRack} 
         setShowBotRack={setShowBotRack} 
-        onBack={onBack} 
+        onBack={onBack}
       />
 
       <BoardGrid 
@@ -219,22 +311,18 @@ export default function Board({ mode, roomInfo, onBack }: any) {
         onCellClick={handleCellClick} 
       />
 
-    <div className="w-full h-24 flex items-center justify-center shrink-0"> 
-      {/* h-24 คือการจองพื้นที่ไว้ประมาณ 96px เพื่อให้ Header และ Board ไม่ขยับ */}
-      {showBotRack ? (
-        <div className="flex gap-2 p-3 bg-rose-50 rounded-2xl border-2 border-dashed border-rose-200 animate-in fade-in zoom-in duration-200">
-          <span className="text-[10px] font-black text-rose-400 uppercase self-center px-2">Bot's Hand:</span>
-          {game.botRack.map((t, i) => (
-            <div key={i} className="w-8 h-8 bg-white border border-rose-100 rounded-lg flex items-center justify-center text-sm text-rose-300 font-bold shadow-sm italic">
-              {t === '0' ? ' ' : t}
-            </div>
-          ))}
-        </div>
-      ) : (
-        // แสดงช่องว่างที่มีขนาดเท่ากันเพื่อให้ Layout ไม่ขยับ
-        <div className="h-full w-full" /> 
-      )}
-    </div>
+      <div className="w-full h-24 flex items-center justify-center shrink-0"> 
+        {showBotRack && (
+          <div className="flex gap-2 p-3 bg-rose-50 rounded-2xl border-2 border-dashed border-rose-200 animate-in fade-in zoom-in duration-200">
+            <span className="text-[10px] font-black text-rose-400 uppercase self-center px-2">Bot's Hand:</span>
+            {game.botRack.map((t, i) => (
+              <div key={i} className="w-8 h-8 bg-white border border-rose-100 rounded-lg flex items-center justify-center text-sm text-rose-300 font-bold shadow-sm italic">
+                {t === '0' ? ' ' : t}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       <PlayerControls 
         rack={game.p1Rack} 
@@ -243,7 +331,7 @@ export default function Board({ mode, roomInfo, onBack }: any) {
         playerRole={playerRole} 
         onSelect={game.handleRackSelect} 
         onRecall={game.handleRecall} 
-        onExchange={() => game.handleExchange(window.confirm)} 
+        onExchange={() => handleExchange(window.confirm)} // เปลี่ยนมาใช้ฟังก์ชันที่สร้างใหม่
         onShuffle={game.handleShuffle} 
         onSubmit={handleSubmit} 
       />

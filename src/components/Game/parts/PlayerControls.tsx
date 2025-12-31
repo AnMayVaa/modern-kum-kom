@@ -43,7 +43,7 @@ export const PlayerControls = ({ rack, selectedIndex, currentPlayer, playerRole,
 
         <button onClick={onExchange} disabled={!isTurn}
           className="py-3 bg-amber-500 text-white font-black rounded-xl border-b-4 border-amber-700 uppercase text-[10px] sm:text-xs active:translate-y-1 transition-all shadow-md">
-          Exchange
+          Exchange / Skip
         </button>
       </div>
 

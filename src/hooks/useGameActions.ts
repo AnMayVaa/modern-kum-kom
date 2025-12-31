@@ -72,60 +72,6 @@ export const useGameActions = (mode: string, roomInfo: any, playerRole: number) 
     setGrid(nextGrid); setP1Rack(nextRack); setTurnHistory([]); setBlankTiles(nextBlanks);
   };
 
-  const handleExchange = async (confirmCall: (msg: string) => boolean) => {
-    if (currentPlayer !== playerRole) return;
-    const numToExchange = turnHistory.length;
-    
-    if (numToExchange > 0) {
-        // 1. ถามยืนยันก่อนแลก
-        if (!confirmCall(`ต้องการแลกเบี้ย ${numToExchange} ตัวที่วางอยู่ใช่หรือไม่?`)) return;
-        
-        // 2. ตรวจสอบว่าเบี้ยในถุงพอให้จั่วใหม่ไหม
-        if (tileBag.length < numToExchange) {
-        alert("เบี้ยในถุงมีไม่พอสำหรับแลกใบใหม่!");
-        return;
-        }
-
-        // --- STEP สำคัญ: จั่วของใหม่ "ก่อน" คืนของเก่า ---
-        
-        // 3. หยิบเบี้ยใหม่จากด้านบนของถุงปัจจุบันมาเก็บไว้
-        const drawnTiles = tileBag.slice(0, numToExchange);
-        const remainingBag = tileBag.slice(numToExchange);
-
-        // 4. นำเบี้ยเก่าที่วางอยู่บนบอร์ดมาเตรียมคืนถุง
-        const tilesToReturn = turnHistory.map(h => h.isBlank ? '0' : h.char);
-
-        // 5. เอาเบี้ยเก่าใส่รวมกับเบี้ยที่เหลือในถุง แล้วทำการสุ่ม (Shuffle) ใหม่
-        const finalBag = [...remainingBag, ...tilesToReturn].sort(() => Math.random() - 0.5);
-
-        // 6. ล้างเบี้ยที่ค้างอยู่บนกระดาน (Manual Clear)
-        // หมายเหตุ: ห้ามใช้ handleRecall เพราะฟังก์ชันนั้นจะดีดเบี้ยเก่ากลับเข้ามือ
-        const nextGrid = [...grid];
-        const nextBlanks = new Set(blankTiles);
-        turnHistory.forEach(h => {
-        nextGrid[h.r][h.c] = null;
-        nextBlanks.delete(`${h.r},${h.c}`);
-        });
-
-        // 7. อัปเดต State ทั้งหมด
-        setGrid(nextGrid);
-        setBlankTiles(nextBlanks);
-        setP1Rack(prev => [...prev, ...drawnTiles]); // เพิ่มเบี้ยใหม่เข้ามือ
-        setTileBag(finalBag); // ถุงใหม่ที่ผสมเบี้ยเก่าและสุ่มแล้ว
-        setTurnHistory([]);
-        
-        alert(`แลกเบี้ยสำเร็จ! ได้รับใบใหม่ ${numToExchange} ใบจากถุงกลาง`);
-    } 
-    else {
-        // กรณีไม่มีเบี้ยบนบอร์ด = Skip Turn
-        if (!confirmCall("คุณยังไม่ได้วางเบี้ย ต้องการข้ามตานี้ใช่หรือไม่?")) return;
-    }
-
-    // 8. จบเทิร์นและสลับผู้เล่น
-    setCurrentPlayer(mode === 'SOLO' ? 2 : (playerRole === 1 ? 2 : 1));
-    setTurnCount(prev => prev + 1);
-    };
-
   const handleCloseModals = () => {
     if (blankMenu) setP1Rack(prev => [...prev, '0']); // Refund เบี้ยว่าง
     setBlankMenu(null); setDiacriticMenu(null);
@@ -136,6 +82,6 @@ export const useGameActions = (mode: string, roomInfo: any, playerRole: number) 
     scores, setScores, turnCount, setTurnCount, currentPlayer, setCurrentPlayer,
     blankTiles, setBlankTiles, turnHistory, setTurnHistory,
     selectedRackIndex, setSelectedRackIndex, blankMenu, setBlankMenu, diacriticMenu, setDiacriticMenu,
-    placeTile, handleRackSelect, handleShuffle, handleRecall, handleExchange, handleCloseModals
+    placeTile, handleRackSelect, handleShuffle, handleRecall, handleCloseModals
   };
 };
