@@ -373,6 +373,14 @@ export default function Board({ mode, roomInfo, onBack }: any) {
       </div>
 
       <div className="flex flex-col items-end gap-1 z-10">
+        {mode === 'SOLO' && (
+          <button 
+            onClick={() => setShowBotRack(!showBotRack)}
+            className={`px-3 py-1 rounded-full text-[10px] font-black transition-all ${showBotRack ? 'bg-rose-500 text-white' : 'bg-slate-100 text-slate-400'}`}
+          >
+            {showBotRack ? 'HIDE BOT RACK' : 'SHOW BOT RACK'}
+          </button>
+        )}
         {mode === 'MULTI' && roomInfo && (
           <span className="bg-indigo-50 text-indigo-600 px-3 py-1 rounded-full text-[10px] font-black border border-indigo-100">
             ROOM: {roomInfo.id}
