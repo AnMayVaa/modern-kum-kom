@@ -1,6 +1,15 @@
+// src/hooks/useGameActions.ts
 import { useState, useEffect } from 'react';
 import { INITIAL_LETTER_QUANTITIES, LETTER_SCORES } from '@/lib/constants';
 import { findValidWords, calculateBingoBonus } from '@/lib/gameLogic';
+
+export type TurnHistoryItem = {
+  r: number;
+  c: number;
+  char: string;
+  isBlank: boolean;
+  originalChar: string | null; 
+};
 
 export const useGameActions = (mode: string, roomInfo: any, playerRole: number) => {
   // --- STATE MANAGEMENT ---
@@ -12,10 +21,12 @@ export const useGameActions = (mode: string, roomInfo: any, playerRole: number) 
   const [currentPlayer, setCurrentPlayer] = useState(roomInfo?.starter || 1);
   const [scores, setScores] = useState({ p1: 0, p2: 0 });
   const [blankTiles, setBlankTiles] = useState<Set<string>>(new Set());
-  const [turnHistory, setTurnHistory] = useState<{ r: number, c: number, char: string, isBlank: boolean }[]>([]);
+  
+  // 💡 แก้ไขจุดนี้: กำหนด Type ให้ useState ตรงกับ TurnHistoryItem
+  const [turnHistory, setTurnHistory] = useState<TurnHistoryItem[]>([]);
   
   const [selectedRackIndex, setSelectedRackIndex] = useState<number | null>(null);
-  const [blankMenu, setBlankMenu] = useState<{ r: number, c: number } | null>(null);
+  const [blankMenu, setBlankMenu] = useState<{ r: number, c: number, originalChar?: string | null } | null>(null);
   const [diacriticMenu, setDiacriticMenu] = useState<{ r: number, c: number } | null>(null);
 
   // --- INITIALIZATION ---
@@ -31,19 +42,20 @@ export const useGameActions = (mode: string, roomInfo: any, playerRole: number) 
   }, [mode]);
 
   // --- CORE ACTIONS ---
-  const placeTile = (r: number, c: number, char: string, isBlank: boolean) => {
-    const nextGrid = [...grid];
-    nextGrid[r][c] = char;
-    setGrid(nextGrid);
-    setTurnHistory(prev => [...prev, { r, c, char, isBlank }]);
-    if (isBlank) setBlankTiles(prev => new Set(prev).add(`${r},${c}`));
+  const placeTile = (r: number, c: number, char: string, isBlank: boolean, original: string | null = null) => {
+    setGrid(prev => {
+      const next = [...prev.map(row => [...row])];
+      next[r][c] = char;
+      return next;
+    });
+    // บันทึกประวัติโดยใช้โครงสร้างที่ถูกต้อง
+    setTurnHistory(prev => [...prev, { r, c, char, isBlank, originalChar: original }]);
   };
 
   const handleRackSelect = (index: number) => {
     if (selectedRackIndex === null) setSelectedRackIndex(index);
     else if (selectedRackIndex === index) setSelectedRackIndex(null);
     else {
-      // Logic สลับเบี้ยในมือ (Swap)
       const newRack = [...p1Rack];
       const temp = newRack[selectedRackIndex];
       newRack[selectedRackIndex] = newRack[index];
@@ -60,32 +72,25 @@ export const useGameActions = (mode: string, roomInfo: any, playerRole: number) 
 
   const handleRecall = () => {
     const nextRack = [...p1Rack];
-    const nextGrid = [...grid];
-    const nextBlanks = new Set(blankTiles);
+    const nextGrid = [...grid.map(row => [...row])];
 
-    turnHistory.forEach(h => {
-        // 💡 จุดสำคัญ: เช็คว่าเป็นแถวคี่หรือไม่ (r % 2 !== 0)
-        // เพราะเฉพาะแถวคี่เท่านั้นที่ใช้ "เบี้ย" จากมือเราจริงๆ
-        if (h.r % 2 !== 0) {
-            // ถ้าเป็นเบี้ยจากตัวฟรี (Blank) ให้คืนเป็นเลข '0' เข้ามือ
-            nextRack.push(h.isBlank ? '0' : h.char);
-        }
-
-        // ล้างข้อมูลบนกระดานตามปกติ ไม่ว่าจะเป็นแถวไหน
-        nextGrid[h.r][h.c] = null;
-        nextBlanks.delete(`${h.r},${h.c}`);
+    turnHistory.forEach((h: TurnHistoryItem) => {
+      if (h.r % 2 !== 0) {
+        nextRack.push(h.isBlank ? '0' : h.char);
+      }
+      // คืนค่าเดิมกลับสู่กระดาน (ถ้าทับมาจะได้ตัวเดิม ถ้าวางช่องว่างจะได้ null)
+      nextGrid[h.r][h.c] = h.originalChar; 
     });
 
-    // อัปเดต State ทั้งหมด
     setGrid(nextGrid);
     setP1Rack(nextRack);
     setTurnHistory([]);
-    setBlankTiles(nextBlanks);
-};
+  };
 
   const handleCloseModals = () => {
-    if (blankMenu) setP1Rack(prev => [...prev, '0']); // Refund เบี้ยว่าง
-    setBlankMenu(null); setDiacriticMenu(null);
+    if (blankMenu) setP1Rack(prev => [...prev, '0']);
+    setBlankMenu(null); 
+    setDiacriticMenu(null);
   };
 
   return {
