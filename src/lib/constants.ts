@@ -25,4 +25,4 @@ export const INITIAL_LETTER_QUANTITIES: Record<string, number> = {
 };
 
 export const FREE_DIACRITICS = ['ิ', 'ี', 'ึ', 'ื', 'ุ', 'ู', '่', '้', '๊', '๋', '็', '์', 'ั'];
-export const THAI_CONSONANTS = "กขคฆงจฉชซฌญฎฏฐฑฒณดตถทธนบปผฝพฟภมยรลวศษสหฬอฮ".split("");
+export const THAI_CONSONANTS = "กขคฆงจฉชซฌญฎฏฐฑฒณดตถทธนบปผฝพฟภมยรลวศษสหฬอฮาำเแไใโะ".split("");
