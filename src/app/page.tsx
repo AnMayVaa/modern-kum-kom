@@ -202,7 +202,7 @@ export default function Home() {
   }, [isMyReady, isOpponentReady]);
 
   const handleBackToMenu = async () => {
-    if (roomData?.id) {
+    if (roomData?.id && roomData.id !== 'SOLO') {
       // 1. แจ้งเตือนคู่แข่งผ่าน API ว่าเราออกจากห้องแล้ว
       try {
         await fetch('/api/multiplayer/match', {

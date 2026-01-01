@@ -70,9 +70,12 @@ export default function Board({ mode, roomInfo, onBack, playerName: pName, oppon
     });
 
     // 💡 ดักสัญญาณคนออก (แก้ปัญหา Popup ไม่เด้ง)
+    // 💡 ตัวรับสัญญาณคนออก
     channel.bind('opponent-disconnected', (data: any) => {
+      console.log("⚠️ คู่แข่งออกจากเกม:", data);
+      // ตรวจสอบว่า Role ที่ออกไม่ใช่ตัวเราเอง
       if (Number(data.role) !== Number(playerRole)) {
-        setIsOpponentLeft(true); // Popup จะเด้งทันที
+        setIsOpponentLeft(true); // Popup "YOU WIN!" จะเด้งขึ้นมา
       }
     });
 
@@ -80,7 +83,7 @@ export default function Board({ mode, roomInfo, onBack, playerName: pName, oppon
       channel.unbind_all();
       pusher.unsubscribe(`room-${roomInfo.id}`);
     };
-  }, [roomInfo?.id, playerRole]);
+  }, [roomInfo?.id, playerRole, mode]);
 
   // --- Bot Logic (รองรับเบี้ยทางเลือกและเบี้ยว่าง) ---
   useEffect(() => {
