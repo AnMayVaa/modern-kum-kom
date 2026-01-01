@@ -64,13 +64,26 @@ export const useGameActions = (mode: string, roomInfo: any, playerRole: number) 
     const nextRack = [...p1Rack];
     const nextGrid = [...grid];
     const nextBlanks = new Set(blankTiles);
+
     turnHistory.forEach(h => {
-      nextRack.push(h.isBlank ? '0' : h.char);
-      nextGrid[h.r][h.c] = null;
-      nextBlanks.delete(`${h.r},${h.c}`);
+        // 💡 จุดสำคัญ: เช็คว่าเป็นแถวคี่หรือไม่ (r % 2 !== 0)
+        // เพราะเฉพาะแถวคี่เท่านั้นที่ใช้ "เบี้ย" จากมือเราจริงๆ
+        if (h.r % 2 !== 0) {
+            // ถ้าเป็นเบี้ยจากตัวฟรี (Blank) ให้คืนเป็นเลข '0' เข้ามือ
+            nextRack.push(h.isBlank ? '0' : h.char);
+        }
+
+        // ล้างข้อมูลบนกระดานตามปกติ ไม่ว่าจะเป็นแถวไหน
+        nextGrid[h.r][h.c] = null;
+        nextBlanks.delete(`${h.r},${h.c}`);
     });
-    setGrid(nextGrid); setP1Rack(nextRack); setTurnHistory([]); setBlankTiles(nextBlanks);
-  };
+
+    // อัปเดต State ทั้งหมด
+    setGrid(nextGrid);
+    setP1Rack(nextRack);
+    setTurnHistory([]);
+    setBlankTiles(nextBlanks);
+};
 
   const handleCloseModals = () => {
     if (blankMenu) setP1Rack(prev => [...prev, '0']); // Refund เบี้ยว่าง
