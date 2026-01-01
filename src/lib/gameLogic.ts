@@ -61,70 +61,78 @@ export const calculateScoreWithDetails = (
   return { totalTurnScore, details };
 };
 
-export const getCluster = (grid: (string | null)[][], r: number, c: number) => {
-  if (r % 2 === 0) return ""; // ข้ามถ้าไม่ใช่แถวพยัญชนะหลัก
-  const main = grid[r][c];
-  if (!main) return "";
-  const top = grid[r - 1][c] || "";
-  const bottom = grid[r + 1][c] || "";
-  return main + top + bottom;
+// ฟังก์ชันช่วยในการรวมสระ/วรรณยุกต์ (แถวคู่) เข้ากับพยัญชนะ (แถวคี่)
+const getCluster = (grid: (string | null)[][], r: number, c: number) => {
+  const char = grid[r][c];
+  if (!char) return "";
+
+  let cluster = "";
+  
+  // 1. สระบน/วรรณยุกต์ (r-1): ต้องอยู่หน้าพยัญชนะเพื่อให้โปรแกรมอ่านพยัญชนะก่อน (หรือตามกติกาภาษาไทย)
+  const above = grid[r - 1]?.[c];
+  if (above && /[ิีึืั่้๊๋็์ํ]/.test(above)) {
+    // ในภาษาไทย สระบนจะเก็บไว้ทีหลังพยัญชนะเสมอ เช่น 'ย' + '่'
+    cluster = char + above; 
+  } else {
+    cluster = char;
+  }
+
+  // 2. สระล่าง (r+1)
+  const below = grid[r + 1]?.[c];
+  if (below && /[ุู]/.test(below)) {
+    cluster += below;
+  }
+
+  return cluster;
 };
 
 export const findValidWords = (grid: (string | null)[][], history: { r: number, c: number }[]) => {
-  const wordMap = new Map<string, { word: string, coords: Set<string> }>();
+  const wordMap = new Map<string, { word: string, coords: string[] }>();
+
+  // Helper สำหรับเก็บพิกัดที่มีตัวอักษรจริงเท่านั้น
+  const addValidCoords = (coordsArr: string[], r: number, c: number) => {
+    if (grid[r] && grid[r][c]) coordsArr.push(`${r},${c}`);
+    if (grid[r-1] && grid[r-1][c]) coordsArr.push(`${r-1},${c}`);
+    if (grid[r+1] && grid[r+1][c]) coordsArr.push(`${r+1},${c}`);
+  };
 
   history.forEach(tile => {
-    // 1. แนวนอน (Horizontal Scan)
+    // 1. แนวนอน
     if (tile.r % 2 !== 0) {
       let startC = tile.c;
       while (startC > 0 && grid[tile.r][startC - 1]) startC--;
-      
       let hWord = "";
-      let hCoords = new Set<string>();
+      let hCoords: string[] = [];
       let currC = startC;
-      let cellsCount = 0; // ตัวนับจำนวนช่องเบี้ยในแถวหลัก
-      
+      let count = 0;
       while (currC < 15 && grid[tile.r][currC]) {
         hWord += getCluster(grid, tile.r, currC);
-        hCoords.add(`${tile.r},${currC}`);
-        hCoords.add(`${tile.r - 1},${currC}`);
-        hCoords.add(`${tile.r + 1},${currC}`);
-        currC++;
-        cellsCount++; // เพิ่มจำนวนช่องที่พบ
+        addValidCoords(hCoords, tile.r, currC); // เก็บเฉพาะที่มีตัวอักษร
+        currC++; count++;
       }
-      
-      // เงื่อนไข: ต้องประกอบด้วยเบี้ยในแถวหลักอย่างน้อย 2 ช่อง (เช่น "ไ" + "ต")
-      if (cellsCount > 1) {
-        wordMap.set(`h-${tile.r}-${startC}`, { word: hWord, coords: hCoords });
-      }
+      if (count > 1) wordMap.set(`h-${tile.r}-${startC}`, { word: hWord, coords: hCoords });
     }
 
-    // 2. แนวตั้ง (Vertical Scan)
+    // 2. แนวตั้ง
     let c = tile.c;
-    // หาจุดเริ่มพยัญชนะที่สูงที่สุดในเสานี้
-    let startR = tile.r % 2 === 0 ? (grid[tile.r + 1]?.[c] ? tile.r + 1 : tile.r - 1) : tile.r;
-    while (startR > 1 && grid[startR - 2][c]) startR -= 2;
-    
+    let startR = tile.r % 2 === 0 ? (grid[tile.r+1]?.[c] ? tile.r+1 : tile.r-1) : tile.r;
+    while (startR > 1 && grid[startR - 2]?.[c]) startR -= 2;
     let vWord = "";
-    let vCoords = new Set<string>();
+    let vCoords: string[] = [];
     let currR = startR;
-    let vCellsCount = 0;
-    
-    while (currR < 30 && grid[currR][c]) {
+    let vCount = 0;
+    while (currR < 31 && grid[currR]?.[c]) {
       vWord += getCluster(grid, currR, c);
-      vCoords.add(`${currR},${c}`);
-      vCoords.add(`${currR - 1},${c}`);
-      vCoords.add(`${currR + 1},${c}`);
-      currR += 2; // ข้ามรางสระไปพยัญชนะถัดไป
-      vCellsCount++;
+      addValidCoords(vCoords, currR, c); // เก็บเฉพาะที่มีตัวอักษร
+      currR += 2; vCount++;
     }
-    
-    if (vCellsCount > 1) {
-      wordMap.set(`v-${startR}-${c}`, { word: vWord, coords: vCoords });
-    }
+    if (vCount > 1) wordMap.set(`v-${startR}-${c}`, { word: vWord, coords: vCoords });
   });
 
-  return Array.from(wordMap.values());
+  return Array.from(wordMap.values()).map(item => ({
+    ...item,
+    coords: Array.from(new Set(item.coords)) 
+  }));
 };
 
 export const calculateBingoBonus = (tilesCount: number): number => {
