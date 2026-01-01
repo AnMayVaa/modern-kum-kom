@@ -4,41 +4,48 @@ import { LETTER_SCORES, BOARD_LAYOUT } from '@/lib/constants';
 
 export const useTurnActions = (game: any, mode: string, roomInfo: any, playerRole: number) => {
   
+  // 💡 ฟังก์ชันตรวจสอบสถานะเกม (จบเกม/รีเซ็ต)
   const checkGameStatus = (currentScores: any, p1Rack: string[], p2Rack: string[], bag: string[], skips: number) => {
     const finalScores = { ...currentScores };
     let msg = "";
 
-    // 1. จบเกมปกติ (ถุงหมด + มีคนเบี้ยหมดมือ)
+    // 1. กรณีจบเกมปกติ (ถุงหมด + มีคนเบี้ยหมดมือ)
     if (bag.length === 0 && (p1Rack.length === 0 || p2Rack.length === 0)) {
       const outOfTilesRole = p1Rack.length === 0 ? 1 : 2;
       const opponentRack = outOfTilesRole === 1 ? p2Rack : p1Rack;
-      const bonus = game.calculateRackScore(opponentRack) * 2; // Bonus x2
       
-      if (outOfTilesRole === 1) finalScores.p1 += bonus; else finalScores.p2 += bonus;
+      // คำนวณโบนัส x2 จากเบี้ยที่เหลือในมือคู่แข่ง
+      const bonus = game.calculateRackScore(opponentRack) * 2;
       
-      // ตัดสินผู้ชนะจากคะแนนสุดท้าย
+      if (outOfTilesRole === 1) finalScores.p1 += bonus; 
+      else finalScores.p2 += bonus;
+      
+      // ตัดสินผู้ชนะจากคะแนนสุดท้ายที่รวมโบนัสแล้ว (ใครคะแนนสูงกว่าชนะ)
       const winnerRole = finalScores.p1 > finalScores.p2 ? 1 : (finalScores.p1 < finalScores.p2 ? 2 : 0);
       const winnerName = winnerRole === 0 ? "เสมอ" : (winnerRole === 1 ? "P1" : "P2");
-      msg = `🎮 จบเกม! ${winnerName} ชนะ (P${outOfTilesRole} ได้โบนัส x2 +${bonus} แต้ม)`;
       
+      msg = `🎮 จบเกม! ${winnerName} เป็นผู้ชนะ (P${outOfTilesRole} เบี้ยหมดมือ ได้โบนัส +${bonus} แต้ม)`;
       return { isEnd: true, finalScores, msg };
     }
 
-    // 2. จบเกมแบบหยุดนิ่ง (ข้าม 6 ตา)
+    // 2. กรณีข้ามตาติดต่อกันครบ 6 ตา (Stalemate / Reset)
     if (skips >= 6) {
       if (bag.length === 0) {
-        // หักคะแนนเบี้ยค้างมือ
+        // 💡 ถ้าเบี้ยหมดถุงแล้ว -> จบเกมทันที และหักคะแนนเบี้ยค้างมือ
         finalScores.p1 -= game.calculateRackScore(p1Rack);
         finalScores.p2 -= game.calculateRackScore(p2Rack);
         
         const winnerRole = finalScores.p1 > finalScores.p2 ? 1 : (finalScores.p1 < finalScores.p2 ? 2 : 0);
-        msg = `🎮 จบเกม (Stalemate)! ${winnerRole === 0 ? "เสมอ" : `P${winnerRole} ชนะ`}`;
+        const resultText = winnerRole === 0 ? "เสมอ" : `P${winnerRole} เป็นผู้ชนะ`;
+        
+        msg = `🎮 จบเกม (Stalemate)! ${resultText} (หักคะแนนเบี้ยค้างมือ)`;
         return { isEnd: true, finalScores, msg };
       } else {
-        // รีเซ็ตกระดานเริ่มใหม่
-        return { isEnd: false, finalScores, resetGrid: true, msg: "🔄 ข้าม 6 ตา! รีเซ็ตกระดานเริ่มใหม่ที่ดาว" };
+        // 💡 ถ้าเบี้ยยังไม่หมดถุง -> รีเซ็ตกระดานเริ่มใหม่ที่ดาว
+        return { isEnd: false, finalScores, resetGrid: true, msg: "🔄 หยุดนิ่ง 6 ตา! รีเซ็ตกระดานเริ่มใหม่ที่ดาว" };
       }
     }
+
     return { isEnd: false, finalScores };
   };
 
@@ -239,5 +246,5 @@ export const useTurnActions = (game: any, mode: string, roomInfo: any, playerRol
       game.setCurrentPlayer(nextTurn);
     }
   };
-  return { handleSubmit, handleExchange };
+  return { handleSubmit, handleExchange, checkGameStatus};
 };

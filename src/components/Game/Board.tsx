@@ -23,7 +23,7 @@ export default function Board({ mode, roomInfo, onBack, playerName: pName, oppon
   const playerName = pName || "YOU"; 
   const opponentName = oName || (mode === 'SOLO' ? 'BOT' : 'Opponent');
 
-  const { handleExchange, handleSubmit } = useTurnActions(game, mode, roomInfo, playerRole);
+  const { handleExchange, handleSubmit, checkGameStatus } = useTurnActions(game, mode, roomInfo, playerRole);
 
   // --- Multi Sync (Initial Sync) ---
   useEffect(() => {
@@ -71,72 +71,223 @@ export default function Board({ mode, roomInfo, onBack, playerName: pName, oppon
     };
   }, [roomInfo?.id, playerRole]);
 
-  // --- Bot Logic ---
+  // --- Bot Logic (รองรับเบี้ยทางเลือกและเบี้ยว่าง) ---
   useEffect(() => {
-    if (mode === 'SOLO' && game.currentPlayer === 2) {
-      const handleBot = async () => {
-        try {
-          const result = await runBotTurn(game.grid, game.botRack, async (word) => {
-            const res = await fetch('/api/check-word', { method: 'POST', body: JSON.stringify({ word }) });
-            const data = await res.json(); return data.valid;
-          });
-          if (result && result.placements.length > 0) {
-            const tempGrid = game.grid.map((row: any) => [...row]);
-            result.placements.forEach((p: any) => { tempGrid[p.r][p.c] = p.char; });
-            const botWords = findValidWords(tempGrid, result.placements);
-            const botTurnCoords = new Set(result.placements.map((p: any) => `${p.r},${p.c}`));
-            const validCoords = new Set<string>();
-            let botSum = 0;
-            botWords.forEach(info => {
-              info.coords.forEach((c: string) => validCoords.add(c));
-              let pts = 0, mult = 1;
-              info.coords.forEach((coord: string) => {
-                const [r, c] = coord.split(',').map(Number);
-                let charPts = LETTER_SCORES[tempGrid[r][c]!] || 0;
-                if (botTurnCoords.has(coord)) {
-                  const b = BOARD_LAYOUT[(r-1)/2][c];
-                  if (b==='2L') charPts*=2; else if (b==='3L') charPts*=3; else if (b==='4L') charPts*=4;
-                  else if (b==='STAR'||b==='2W') mult*=2; else if (b==='3W') mult*=3;
-                }
-                pts += charPts;
-              });
-              botSum += (pts * mult);
+    // 💡 ดักถ้าไม่ใช่โหมด SOLO หรือไม่ใช่ตาบอท หรือเกมจบแล้ว ให้หยุดทำงาน
+    if (mode !== 'SOLO' || game.currentPlayer !== 2 || game.isGameOver) return;
+
+    const handleBot = async () => {
+      try {
+        // 1. บอทประมวลผลหาคำศัพท์ที่ดีที่สุด
+        const result = await runBotTurn(game.grid, game.botRack, async (word) => {
+          const res = await fetch('/api/check-word', { method: 'POST', body: JSON.stringify({ word }) });
+          const data = await res.json(); 
+          return data.valid;
+        });
+
+        if (result && result.placements.length > 0) {
+          const tempGrid = game.grid.map((row: any) => [...row]);
+          result.placements.forEach((p: any) => { tempGrid[p.r][p.c] = p.char; });
+
+          const botWords = findValidWords(tempGrid, result.placements);
+          const botTurnCoords = new Set(result.placements.map((p: any) => `${p.r},${p.c}`));
+          const validCoords = new Set<string>();
+          let botSum = 0;
+
+          // 2. คำนวณคะแนนคำศัพท์ที่บอทลง
+          botWords.forEach(info => {
+            info.coords.forEach((c: string) => validCoords.add(c));
+            let pts = 0, mult = 1;
+            
+            info.coords.forEach((coord: string) => {
+              const [r, c] = coord.split(',').map(Number);
+              // คะแนนพื้นฐานของตัวอักษรนั้นๆ
+              let charPts = LETTER_SCORES[tempGrid[r][c]!] || 0;
+
+              if (botTurnCoords.has(coord)) {
+                const b = BOARD_LAYOUT[(r - 1) / 2][c];
+                if (b === '2L') charPts *= 2; 
+                else if (b === '3L') charPts *= 3; 
+                else if (b === '4L') charPts *= 4;
+                else if (b === 'STAR' || b === '2W') mult *= 2; 
+                else if (b === '3W') mult *= 3;
+              }
+              pts += charPts;
             });
-            const cleanBotGrid = tempGrid.map((row, r) => row.map((char, c) => validCoords.has(`${r},${c}`) ? char : null));
-            const botBingo = calculateBingoBonus(result.placements.length);
-            alert(`🤖 บอทลงคำ: ${botWords.map(i => i.word).join(', ')}\nรวม: ${botSum + botBingo} แต้ม`);
-            game.setGrid(cleanBotGrid); game.setScores((p: any) => ({...p, p2: p.p2 + botSum + botBingo}));
-            const newRack = [...game.botRack];
-            result.placements.forEach((p: any) => { const i = newRack.indexOf(p.char); if(i > -1) newRack.splice(i, 1); });
-            const drawn = game.tileBag.slice(0, result.placements.length);
-            game.setTileBag((p: string[]) => p.slice(result.placements.length));
-            game.setBotRack([...newRack, ...drawn]);
-          } else alert("บอทขอผ่าน");
-        } catch (e) { console.error(e); }
-        finally { game.setCurrentPlayer(1); game.setTurnCount((p: number) => p + 1); }
-      };
-      setTimeout(handleBot, 1500);
+            botSum += (pts * mult);
+          });
+
+          // 3. Surgical Cleanup สำหรับบอท
+          const cleanBotGrid = tempGrid.map((row, r) => 
+            row.map((char, c) => validCoords.has(`${r},${c}`) ? char : null)
+          );
+
+          const botBingo = calculateBingoBonus(result.placements.length);
+          const totalPoints = botSum + botBingo;
+
+          alert(`🤖 บอทลงคำ: ${botWords.map(i => i.word).join(', ')}\nรวม: ${totalPoints} แต้ม`);
+
+          // 4. จัดการเบี้ยในมือบอท (Logic การหักเบี้ยพิเศษ)
+          const newBotRack = [...game.botRack];
+          result.placements.forEach((p: any) => {
+            // ก. ลองหาเบี้ยตรงตัวก่อน
+            let idx = newBotRack.indexOf(p.char);
+
+            // ข. ถ้าไม่เจอ ลองเช็คว่าเป็นเบี้ยทางเลือกหรือไม่ (เช่น ฆ/ซ)
+            if (idx === -1) {
+              idx = newBotRack.findIndex(tile => tile.includes('/') && tile.includes(p.char));
+            }
+
+            // ค. ถ้ายังไม่เจออีก แสดงว่าบอทใช้เบี้ยว่าง (0)
+            if (idx === -1) {
+              idx = newBotRack.indexOf('0');
+            }
+
+            // หักเบี้ยออกจากมือบอท
+            if (idx > -1) {
+              newBotRack.splice(idx, 1);
+            }
+          });
+
+          // 5. อัปเดตสถานะเกม (คะแนน, กระดาน, ถุงเบี้ย)
+          const updatedScores = { ...game.scores, p2: game.scores.p2 + totalPoints };
+          const nextBag = game.tileBag.slice(result.placements.length);
+          const drawn = game.tileBag.slice(0, result.placements.length);
+
+          // เช็คสถานะจบเกมสำหรับบอท
+          // (หมายเหตุ: ในโหมด SOLO p1Rack คือมือผู้เล่น, newBotRack คือมือบอท)
+          const status = checkGameStatus(updatedScores, game.p1Rack, newBotRack, nextBag, 0);
+
+          game.setGrid(cleanBotGrid);
+          game.setScores(status.finalScores);
+          game.setTileBag(nextBag);
+          game.setBotRack([...newBotRack, ...drawn]);
+
+          if (status.isEnd) {
+            game.setIsGameOver(true);
+            if (status.msg) alert(status.msg);
+          }
+
+        } else {
+          alert("บอทไม่มีคำศัพท์ที่ลงได้... ขอผ่าน");
+          // กรณีบอทข้ามตา ให้เช็ค Stalemate ด้วย
+          const nextSkip = game.skipCount + 1;
+          const status = checkGameStatus(game.scores, game.p1Rack, game.botRack, game.tileBag, nextSkip);
+          
+          game.setSkipCount(status.resetGrid ? 0 : nextSkip);
+          if (status.resetGrid) {
+            game.setGrid(Array(31).fill(null).map(() => Array(15).fill(null)));
+            game.setTurnCount(0);
+          }
+          if (status.isEnd) game.setIsGameOver(true);
+          if (status.msg) alert(status.msg);
+        }
+      } catch (e) { 
+        console.error("Bot Error:", e); 
+      } finally { 
+        // สลับตากลับมาที่ผู้เล่น
+        game.setCurrentPlayer(1); 
+        game.setTurnCount((p: number) => p + 1); 
+      }
+    };
+
+    // หน่วงเวลาเพื่อให้ดูเหมือนบอทกำลังคิด
+    const timer = setTimeout(handleBot, 1500);
+    return () => clearTimeout(timer);
+
+  }, [game.currentPlayer, mode, game.isGameOver]);
+
+  const onSelect = (selectedChar: string, isBlank: boolean) => {
+    if (game.blankMenu) {
+      const { r, c, originalChar } = game.blankMenu;
+      // ส่ง '0' เป็นร่างเดิมของเบี้ยว่าง
+      game.placeTile(r, c, selectedChar, true, originalChar, '0');
+      game.setBlankTiles((prev: Set<string>) => new Set(prev).add(`${r},${c}`));
+      game.setBlankMenu(null);
+    } 
+    else if (game.diacriticMenu) {
+      const { r, c, originalChar, dualOptions } = game.diacriticMenu;
+      
+      // 💡 ตรวจสอบว่ามาจากเบี้ยทางเลือก (ฆ/ซ) หรือไม่
+      if (dualOptions) {
+        const originalDualStr = dualOptions.join('/'); // ต่อกลับเป็น 'ฆ/ซ'
+        game.placeTile(r, c, selectedChar, false, originalChar, originalDualStr);
+      } else {
+        // กรณีสระ/วรรณยุกต์ทั่วไปไม่มีร่างเดิมใน Rack
+        game.placeTile(r, c, selectedChar, false, originalChar);
+      }
+      game.setDiacriticMenu(null);
     }
-  }, [game.currentPlayer, mode]);
+  };
 
   return (
     <div className="flex flex-col items-center justify-start gap-4 p-4 bg-slate-50 min-h-screen font-sans overflow-x-hidden">      
-      <GameHeader mode={mode} playerName={playerName} opponentName={opponentName} playerRole={playerRole} currentPlayer={game.currentPlayer} scores={game.scores} tileBagLength={game.tileBag.length} showBotRack={showBotRack} setShowBotRack={setShowBotRack} onBack={onBack} />
+      <GameHeader 
+        mode={mode} 
+        playerName={playerName} 
+        opponentName={opponentName} 
+        playerRole={playerRole} 
+        currentPlayer={game.currentPlayer} 
+        scores={game.scores} 
+        tileBagLength={game.tileBag.length} 
+        showBotRack={showBotRack} 
+        setShowBotRack={setShowBotRack} 
+        onBack={onBack} 
+      />
       
-      {/* ✅ ใส่ Type (r: number, c: number) */}
-      <BoardGrid grid={game.grid} blankTiles={game.blankTiles} currentPlayer={game.currentPlayer} playerRole={playerRole} mode={mode} onCellClick={(r: number, c: number) => {
-        if (game.currentPlayer !== playerRole) return;
-        // ✅ เพิ่ม check game.selectedRackIndex !== null
-        if (r % 2 !== 0 && game.selectedRackIndex !== null) {
-          const char = game.p1Rack[game.selectedRackIndex];
-          const original = game.grid[r][c];
-          if (original && !window.confirm(`ทับตัว "${original}"?`)) return;
-          if (char === '0') game.setBlankMenu({ r, c, originalChar: original });
-          else game.placeTile(r, c, char, false, original);
-          game.setP1Rack((p: string[]) => p.filter((_, i) => i !== game.selectedRackIndex));
-          game.setSelectedRackIndex(null);
-        } else if (r % 2 === 0) game.setDiacriticMenu({ r, c });
-      }} />
+      <BoardGrid 
+        grid={game.grid} 
+        blankTiles={game.blankTiles} 
+        currentPlayer={game.currentPlayer} 
+        playerRole={playerRole} 
+        mode={mode} 
+        onCellClick={(r: number, c: number) => {
+          // 💡 ดักถ้าจบเกมแล้ว หรือไม่ใช่ตาเรา ห้ามกด
+          if (game.isGameOver || game.currentPlayer !== playerRole) return;
+
+          const isMain = r % 2 !== 0; // ช่องสำหรับวางตัวอักษร
+          
+          if (isMain && game.selectedRackIndex !== null) {
+            const char = game.p1Rack[game.selectedRackIndex];
+            const original = game.grid[r][c];
+            
+            // ตรวจสอบการวางทับ
+            const hasOverwritten = game.turnHistory.some((h: any) => h.originalChar !== null);
+            if (original) {
+              if (hasOverwritten) return alert("วางทับเบี้ยเดิมได้ไม่เกิน 1 ตัวต่อหนึ่งตาเดิน!");
+              if (!window.confirm(`ต้องการวางทับตัว "${original}"?`)) return;
+            }
+
+            // 🔍 1. กรณีเป็นเบี้ยทางเลือก (เช่น ฆ/ซ)
+            if (char.includes('/')) {
+              game.setDiacriticMenu({ 
+                r, c, 
+                originalChar: original, 
+                dualOptions: char.split('/') // แยกตัวเลือก เช่น ['ฆ', 'ซ']
+              });
+              game.setP1Rack((p: string[]) => p.filter((_, i) => i !== game.selectedRackIndex));
+              game.setSelectedRackIndex(null);
+              return;
+            }
+
+            // 🔍 2. กรณีเป็นเบี้ยตัวฟรี (Blank)
+            if (char === '0') {
+              game.setBlankMenu({ r, c, originalChar: original });
+            } 
+            // 🔍 3. กรณีเป็นเบี้ยปกติ
+            else {
+              game.placeTile(r, c, char, false, original);
+            }
+
+            game.setP1Rack((p: string[]) => p.filter((_, i) => i !== game.selectedRackIndex));
+            game.setSelectedRackIndex(null);
+          } 
+          // 💡 กรณีคลิกช่องสระ/วรรณยุกต์ (ช่องเลขคู่)
+          else if (!isMain) {
+            game.setDiacriticMenu({ r, c });
+          }
+        }} 
+      />
 
       {showBotRack && (
         <div className="flex gap-2 p-3 bg-rose-50 rounded-2xl border-2 border-dashed border-rose-200">
@@ -147,11 +298,13 @@ export default function Board({ mode, roomInfo, onBack, playerName: pName, oppon
       <PlayerControls rack={game.p1Rack} selectedIndex={game.selectedRackIndex} currentPlayer={game.currentPlayer} playerRole={playerRole} onSelect={game.handleRackSelect} onRecall={game.handleRecall} onExchange={() => handleExchange(window.confirm)} onShuffle={game.handleShuffle} onSubmit={handleSubmit} />
       
       {/* ✅ ใส่ Type (char: string, isBlank: boolean) */}
-      <GameModals blankMenu={game.blankMenu} diacriticMenu={game.diacriticMenu} isOpponentLeft={isOpponentLeft} onSelect={(char: string, isBlank: boolean) => {
-          const t = game.blankMenu || game.diacriticMenu;
-          if (t) game.placeTile(t.r, t.c, char, isBlank, t.originalChar);
-          game.setBlankMenu(null); game.setDiacriticMenu(null);
-      }} onClose={game.handleCloseModals} />
+      <GameModals 
+        blankMenu={game.blankMenu} 
+        diacriticMenu={game.diacriticMenu} 
+        isOpponentLeft={isOpponentLeft} 
+        onSelect={onSelect} // ✅ ใช้ฟังก์ชันที่เราเพิ่งสร้างด้านบน
+        onClose={game.handleCloseModals} 
+      />
       {/* 🏆 Popup สรุปคะแนนผู้ชนะ (เด้งอัตโนมัติเมื่อจบเกม) */}
       {game.isGameOver && (
         <div className="fixed inset-0 bg-slate-900/95 backdrop-blur-md z-[1000] flex items-center justify-center p-6 animate-in fade-in duration-500">

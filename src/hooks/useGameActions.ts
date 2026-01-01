@@ -8,12 +8,14 @@ export type TurnHistoryItem = {
   char: string;
   isBlank: boolean;
   originalChar: string | null; 
+  originalRackChar?: string | null;
 };
 
 export type MenuState = { 
   r: number; 
   c: number; 
   originalChar?: string | null; 
+  dualOptions?: string[];
 } | null;
 
 /**
@@ -79,13 +81,17 @@ export const useGameActions = (mode: string, roomInfo: any, playerRole: number, 
   };
 
   // --- 4. CORE ACTIONS ---
-  const placeTile = (r: number, c: number, char: string, isBlank: boolean, original: string | null = null) => {
+  const placeTile = (r: number, c: number, char: string, isBlank: boolean, original: string | null = null, rackChar: string | null = null) => {
     setGrid(prev => {
       const next = [...prev.map(row => [...row])];
       next[r][c] = char;
       return next;
     });
-    setTurnHistory(prev => [...prev, { r, c, char, isBlank, originalChar: original }]);
+    setTurnHistory(prev => [...prev, { 
+      r, c, char, isBlank, 
+      originalChar: original, 
+      originalRackChar: rackChar // ✅ บันทึกร่างเดิมไว้
+    }]);
   };
 
   const handleRackSelect = (index: number) => {
@@ -110,7 +116,9 @@ export const useGameActions = (mode: string, roomInfo: any, playerRole: number, 
 
     turnHistory.forEach((h: TurnHistoryItem) => {
       if (h.r % 2 !== 0) {
-        nextRack.push(h.isBlank ? '0' : h.char);
+        // 💡 ถ้ามีร่างเดิม (เช่น 'ฆ/ซ') ให้คืนร่างนั้น ถ้าไม่มีคืนตามปกติ
+        const tileToReturn = h.originalRackChar || (h.isBlank ? '0' : h.char);
+        nextRack.push(tileToReturn);
       }
       nextGrid[h.r][h.c] = h.originalChar; 
     });
@@ -118,11 +126,18 @@ export const useGameActions = (mode: string, roomInfo: any, playerRole: number, 
     setGrid(nextGrid);
     setP1Rack(nextRack);
     setTurnHistory([]);
+    setSelectedRackIndex(null);
   };
 
   const handleCloseModals = () => {
-    // ✅ แก้ไข typo จาก setP Rack เป็น setP1Rack
-    if (blankMenu) setP1Rack(prev => [...prev, '0']);
+    // 💡 ถ้าปิดเมนูโดยไม่เลือก ให้คืนเบี้ยเข้ามือให้ถูกตัว
+    if (blankMenu) {
+      setP1Rack(prev => [...prev, '0']);
+    } else if (diacriticMenu?.dualOptions) {
+      // คืนเบี้ยทางเลือกกลับเป็น 'ฆ/ซ'
+      const originalDual = diacriticMenu.dualOptions.join('/');
+      setP1Rack(prev => [...prev, originalDual]);
+    }
     setBlankMenu(null); 
     setDiacriticMenu(null);
   };
