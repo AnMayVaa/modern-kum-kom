@@ -1,4 +1,65 @@
 // src/lib/gameLogic.ts
+import { LETTER_SCORES, BOARD_LAYOUT } from './constants';
+
+export interface ScoreDetail {
+  word: string;
+  baseScore: number;
+  multiplierInfo: string;
+  wordMultiplier: number;
+  finalWordScore: number;
+}
+
+export const calculateScoreWithDetails = (
+  grid: (string | null)[][],
+  wordsInfo: { word: string; coords: string[] }[],
+  turnHistory: { r: number; c: number; char: string; isBlank: boolean }[],
+  blankTiles: Set<string>
+) => {
+  let totalTurnScore = 0;
+  const details: ScoreDetail[] = [];
+  const turnCoords = new Set(turnHistory.map(h => `${h.r},${h.c}`));
+
+  wordsInfo.forEach(info => {
+    let wordPoints = 0;
+    let wordMult = 1;
+    let letterMultiplierText = "";
+
+    info.coords.forEach(coordStr => {
+      const [r, c] = coordStr.split(',').map(Number);
+      const char = grid[r][c] || "";
+      
+      // คะแนนพื้นฐาน (ถ้าเป็น Blank '0' คะแนนจะเป็น 0)
+      let letterVal = blankTiles.has(coordStr) ? 0 : (LETTER_SCORES[char] || 0);
+      
+      // ตรวจสอบตัวคูณบนกระดาน (เฉพาะเบี้ยที่วางใหม่ในตานี้เท่านั้น)
+      if (turnCoords.has(coordStr)) {
+        const layoutRow = (r - 1) / 2; // แปลง Row จาก 31 เป็น 15
+        const multiplier = BOARD_LAYOUT[layoutRow][c];
+
+        if (multiplier === '2L') letterVal *= 2;
+        else if (multiplier === '3L') letterVal *= 3;
+        else if (multiplier === '4L') letterVal *= 4;
+        else if (multiplier === '2W' || multiplier === 'STAR') wordMult *= 2;
+        else if (multiplier === '3W') wordMult *= 3;
+      }
+      
+      wordPoints += letterVal;
+    });
+
+    const finalWordScore = wordPoints * wordMult;
+    totalTurnScore += finalWordScore;
+
+    details.push({
+      word: info.word,
+      baseScore: wordPoints,
+      multiplierInfo: wordMult > 1 ? `x${wordMult} Word Bonus` : "No Word Mult",
+      wordMultiplier: wordMult,
+      finalWordScore: finalWordScore
+    });
+  });
+
+  return { totalTurnScore, details };
+};
 
 export const getCluster = (grid: (string | null)[][], r: number, c: number) => {
   if (r % 2 === 0) return ""; // ข้ามถ้าไม่ใช่แถวพยัญชนะหลัก

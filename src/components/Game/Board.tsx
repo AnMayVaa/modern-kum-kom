@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect } from 'react';
-import { LETTER_SCORES } from '@/lib/constants';
+import { LETTER_SCORES, BOARD_LAYOUT } from '@/lib/constants';
 import { findValidWords, calculateBingoBonus } from '@/lib/gameLogic';
 import { runBotTurn, Placement } from '@/lib/botLogic';
 
@@ -147,25 +147,50 @@ export default function Board({
             result.placements.forEach((p: Placement) => { tempGrid[p.r][p.c] = p.char; });
 
             const botWordsInfo = findValidWords(tempGrid, result.placements);
-            let botValidCoords = new Set<string>();
-            let baseScore = 0;
+            const botTurnCoords = new Set(result.placements.map((p: any) => `${p.r},${p.c}`));
+            
+            let botTurnTotal = 0;
+            let botDebugDetails: string[] = [];
 
+            // --- Bot ใช้กติกาการคำนวณคะแนนเดียวกับผู้เล่น ---
             botWordsInfo.forEach(info => {
-              baseScore += info.word.split('').reduce((s, c) => s + (LETTER_SCORES[c] || 0), 0);
-              info.coords.forEach(coord => botValidCoords.add(coord));
+              let wordPoints = 0;
+              let wordMultiplier = 1;
+
+              info.coords.forEach(coordStr => {
+                const [r, c] = coordStr.split(',').map(Number);
+                const char = tempGrid[r][c] || "";
+                let letterVal = LETTER_SCORES[char] || 0;
+
+                if (botTurnCoords.has(coordStr)) {
+                  const layoutRow = (r - 1) / 2;
+                  const bonus = BOARD_LAYOUT[layoutRow][c];
+                  if (bonus === '2L') letterVal *= 2;
+                  else if (bonus === '3L') letterVal *= 3;
+                  else if (bonus === '4L') letterVal *= 4;
+                  else if (bonus === '2W' || bonus === 'STAR') wordMultiplier *= 2;
+                  else if (bonus === '3W') wordMultiplier *= 3;
+                }
+                wordPoints += letterVal;
+              });
+
+              const finalWordScore = wordPoints * wordMultiplier;
+              botTurnTotal += finalWordScore;
+              botDebugDetails.push(`${info.word}: ${wordPoints}${wordMultiplier > 1 ? ` x${wordMultiplier}` : ''} = ${finalWordScore}`);
             });
 
-            const bingoBonus = calculateBingoBonus(result.placements.length);
-            const finalScore = baseScore + bingoBonus;
+            const botBingoBonus = calculateBingoBonus(result.placements.length);
+            const botFinalScore = botTurnTotal + botBingoBonus;
 
-            const cleanedGrid = Array(31).fill(null).map(() => Array(15).fill(null));
-            botValidCoords.forEach(coord => {
-              const [r, c] = coord.split(',').map(Number);
-              cleanedGrid[r][c] = tempGrid[r][c];
-            });
+            // แสดงรายละเอียดการคำนวณของบอท
+            let botMsg = `🤖 บอทลงคำ: ${botWordsInfo.map(i => i.word).join(', ')}\n` + botDebugDetails.join('\n');
+            if (botBingoBonus > 0) botMsg += `\n+ Bingo Bonus: ${botBingoBonus}`;
+            botMsg += `\nรวม: ${botFinalScore} คะแนน`;
+            alert(botMsg);
 
-            game.setGrid(cleanedGrid);
-            game.setScores((prev: any) => ({ ...prev, p2: prev.p2 + finalScore }));
+            // อัปเดต State บอท
+            game.setGrid(tempGrid);
+            game.setScores((prev: any) => ({ ...prev, p2: prev.p2 + botFinalScore }));
 
             const newBotRack = [...game.botRack];
             result.placements.forEach((p: Placement) => {
@@ -176,8 +201,6 @@ export default function Board({
             game.setTileBag((prev: string[]) => prev.slice(result.placements.length));
             game.setBotRack([...newBotRack, ...drawn]);
 
-            const allWords = botWordsInfo.map(i => i.word).join(", ");
-            alert(`🤖 บอทลงคำว่า: ${allWords}\nได้แต้ม: ${finalScore}`);
           } else {
             alert("บอทขอผ่าน");
           }
@@ -211,6 +234,8 @@ export default function Board({
 
   const handleSubmit = async () => {
     if (game.turnHistory.length === 0) return;
+
+    // ตรวจสอบเงื่อนไขตาแรกต้องทับดาว (Row 15, Col 7)
     const touchesStar = game.turnHistory.some(h => h.r === 15 && h.c === 7);
     if (game.turnCount === 0 && !touchesStar) return alert("ตาแรกต้องทับดาว!");
 
@@ -218,70 +243,92 @@ export default function Board({
     if (wordsInfo.length === 0) return alert("การวางไม่ทำให้เกิดคำ!");
 
     try {
-      let turnTotal = 0;
-      let validCoords = new Set<string>();
       let validatedWords: string[] = [];
-      let hasInvalid = false;
+      let turnTotalScore = 0;
+      let debugDetails: string[] = [];
+      const turnCoords = new Set(game.turnHistory.map(h => `${h.r},${h.c}`));
 
+      // 1. ตรวจสอบพจนานุกรมและคำนวณคะแนนทีละคำ
       for (const info of wordsInfo) {
         const res = await fetch('/api/check-word', { method: 'POST', body: JSON.stringify({ word: info.word }) });
         const data = await res.json();
-        if (data.valid) {
-          turnTotal += info.word.split('').reduce((s, c) => s + (LETTER_SCORES[c] || 0), 0);
-          info.coords.forEach(coord => validCoords.add(coord));
-          validatedWords.push(info.word);
-        } else {
+        
+        if (!data.valid) {
           alert(`ไม่พบคำว่า "${info.word}"`);
-          hasInvalid = true;
-          break;
+          return;
         }
-      }
+        validatedWords.push(info.word);
 
-      if (!hasInvalid && validatedWords.length > 0) {
-        const bingoBonus = calculateBingoBonus(game.turnHistory.length);
-        const totalScore = turnTotal + bingoBonus;
+        // --- Logic การคิดคะแนนตัวคูณ ---
+        let wordPoints = 0;
+        let wordMultiplier = 1;
 
-        const finalGrid = Array(31).fill(null).map(() => Array(15).fill(null));
-        const finalBlanks = new Set<string>();
-        validCoords.forEach(coord => {
-          const [r, c] = coord.split(',').map(Number);
-          if (game.grid[r][c]) {
-            finalGrid[r][c] = game.grid[r][c];
-            if (game.blankTiles.has(coord)) finalBlanks.add(coord);
+        info.coords.forEach(coordStr => {
+          const [r, c] = coordStr.split(',').map(Number);
+          const char = game.grid[r][c] || "";
+          let letterVal = game.blankTiles.has(coordStr) ? 0 : (LETTER_SCORES[char] || 0);
+
+          // ใช้ตัวคูณเฉพาะเบี้ยที่วางใหม่ในตานี้เท่านั้น
+          if (turnCoords.has(coordStr)) {
+            const layoutRow = (r - 1) / 2;
+            const bonus = BOARD_LAYOUT[layoutRow][c];
+            if (bonus === '2L') letterVal *= 2;
+            else if (bonus === '3L') letterVal *= 3;
+            else if (bonus === '4L') letterVal *= 4;
+            else if (bonus === '2W' || bonus === 'STAR') wordMultiplier *= 2;
+            else if (bonus === '3W') wordMultiplier *= 3;
           }
+          wordPoints += letterVal;
         });
 
-        const newScores = { ...game.scores };
-        if (playerRole === 1) newScores.p1 += totalScore; else newScores.p2 += totalScore;
-
-        game.setGrid(finalGrid);
-        game.setScores(newScores);
-        game.setBlankTiles(finalBlanks);
-        
-        const numUsed = game.turnHistory.length;
-        game.setP1Rack([...game.p1Rack, ...game.tileBag.slice(0, numUsed)]);
-        game.setTileBag((prev: string[]) => prev.slice(numUsed));
-        
-        game.setTurnHistory([]);
-        game.setTurnCount((prev: number) => prev + 1);
-
-        alert(`✅ ${validatedWords.join(', ')} : ${totalScore} คะแนน`);
-
-        if (mode === 'MULTI' && roomInfo) {
-          await fetch('/api/multiplayer/move', {
-            method: 'POST',
-            body: JSON.stringify({
-              roomId: roomInfo.id,
-              newGrid: finalGrid,
-              newScores: newScores,
-              senderRole: playerRole,
-              words: validatedWords,
-              nextTurn: playerRole === 1 ? 2 : 1
-            })
-          });
-        }
-        game.setCurrentPlayer(mode === 'SOLO' ? 2 : (playerRole === 1 ? 2 : 1));
+        const finalWordScore = wordPoints * wordMultiplier;
+        turnTotalScore += finalWordScore;
+        debugDetails.push(`${info.word}: ${wordPoints}${wordMultiplier > 1 ? ` x${wordMultiplier}` : ''} = ${finalWordScore}`);
       }
+
+      // 2. คำนวณ Bingo Bonus (50 คะแนนถ้าลงครบ 7 ตัว)
+      const bingoBonus = calculateBingoBonus(game.turnHistory.length);
+      const totalFinalScore = turnTotalScore + bingoBonus;
+
+      // 3. แสดงผล Debug
+      let scoreMsg = `✅ สำเร็จ!\n` + debugDetails.join('\n');
+      if (bingoBonus > 0) scoreMsg += `\n+ Bingo Bonus: ${bingoBonus}`;
+      scoreMsg += `\n━━━━━━━━━━━━━━\nรวมทั้งหมด: ${totalFinalScore} คะแนน`;
+      alert(scoreMsg);
+
+      // 4. อัปเดต State (Grid Cleanup, Scores, Rack)
+      const finalGrid = game.grid.map(row => [...row]);
+      const finalBlanks = new Set(game.blankTiles);
+      const newScores = { ...game.scores };
+      if (playerRole === 1) newScores.p1 += totalFinalScore; else newScores.p2 += totalFinalScore;
+
+      game.setGrid(finalGrid);
+      game.setScores(newScores);
+      game.setBlankTiles(finalBlanks);
+      
+      const numUsed = game.turnHistory.length;
+      game.setP1Rack([...game.p1Rack, ...game.tileBag.slice(0, numUsed)]);
+      game.setTileBag((prev: string[]) => prev.slice(numUsed));
+      
+      game.setTurnHistory([]);
+      game.setTurnCount((prev: number) => prev + 1);
+
+      // 5. ส่งข้อมูล Multiplayer (ถ้ามี)
+      if (mode === 'MULTI' && roomInfo) {
+        await fetch('/api/multiplayer/move', {
+          method: 'POST',
+          body: JSON.stringify({
+            roomId: roomInfo.id,
+            newGrid: finalGrid,
+            newScores: newScores,
+            senderRole: playerRole,
+            words: validatedWords,
+            nextTurn: playerRole === 1 ? 2 : 1
+          })
+        });
+      }
+      game.setCurrentPlayer(mode === 'SOLO' ? 2 : (playerRole === 1 ? 2 : 1));
+
     } catch (e) {
       alert("ระบบขัดข้อง");
     }
