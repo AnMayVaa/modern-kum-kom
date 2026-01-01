@@ -40,7 +40,6 @@ export const useGameActions = (mode: string, roomInfo: any, playerRole: number) 
   };
 
   const handleRackSelect = (index: number) => {
-    if (currentPlayer !== playerRole) return;
     if (selectedRackIndex === null) setSelectedRackIndex(index);
     else if (selectedRackIndex === index) setSelectedRackIndex(null);
     else {
@@ -55,7 +54,6 @@ export const useGameActions = (mode: string, roomInfo: any, playerRole: number) 
   };
 
   const handleShuffle = () => {
-    if (currentPlayer !== playerRole) return;
     setP1Rack(prev => [...prev].sort(() => Math.random() - 0.5));
     setSelectedRackIndex(null);
   };

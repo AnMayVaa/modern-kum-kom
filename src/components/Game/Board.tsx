@@ -242,127 +242,141 @@ export default function Board({
 
   // --- PLAYER ACTIONS ---
   const handleCellClick = (r: number, c: number) => {
-    if (game.currentPlayer !== playerRole) return;
-    const isMain = r % 2 !== 0;
+    // 💡 บล็อกการวางเบี้ยลงบนกระดาน "เฉพาะ" เมื่อไม่ใช่ตาของเรา
+    if (game.currentPlayer !== playerRole) return; 
+
+    const isMain = r % 2 !== 0; // แถวพยัญชนะ (แถวคี่)
 
     if (isMain) {
+      // ตรวจสอบว่ามีการเลือกเบี้ยจากมือไว้ และช่องบนกระดานยังว่างอยู่
       if (game.selectedRackIndex !== null && !game.grid[r][c]) {
         const char = game.p1Rack[game.selectedRackIndex];
-        if (char === '0') game.setBlankMenu({ r, c });
-        else game.placeTile(r, c, char, false);
+
+        if (char === '0') {
+          // กรณีเป็นตัวฟรี (Blank) ให้เปิดเมนูเลือกตัวอักษรที่ต้องการแปลง
+          game.setBlankMenu({ r, c });
+        } else {
+          // กรณีเป็นเบี้ยปกติ ให้วางลงบนพิกัดที่คลิก
+          game.placeTile(r, c, char, false);
+        }
+
+        // เมื่อวางเสร็จ ให้หักเบี้ยออกจากมือ และล้างสถานะการเลือก (Selection)
         game.setP1Rack(prev => prev.filter((_, i) => i !== game.selectedRackIndex));
         game.setSelectedRackIndex(null);
       }
-    } else game.setDiacriticMenu({ r, c });
+    } else {
+      // แถวสระและวรรณยุกต์ (แถวคู่) ให้เปิดเมนูตัวเลือกสระ
+      game.setDiacriticMenu({ r, c });
+    }
   };
 
   const handleSubmit = async () => {
-  if (game.turnHistory.length === 0) return;
+    if (game.turnHistory.length === 0) return;
 
-  const isFirstTurn = game.turnCount === 0;
-  if (isFirstTurn && !game.turnHistory.some(h => h.r === 15 && h.c === 7)) {
-    return alert("ตาแรกต้องทับดาว!");
-  }
+    const isFirstTurn = game.turnCount === 0;
+    if (isFirstTurn && !game.turnHistory.some(h => h.r === 15 && h.c === 7)) {
+      return alert("ตาแรกต้องทับดาว!");
+    }
 
-  // 1. ตรวจหาคำศัพท์ทั้งหมด "ทั้งกระดาน" เพื่อใช้ล้างคำเก่าที่พัง
-  const allDetectedWords = findValidWords(game.grid, game.turnHistory);
-  if (allDetectedWords.length === 0) return alert("การวางไม่ทำให้เกิดคำ!");
+    // 1. ตรวจหาคำศัพท์ทั้งหมด "ทั้งกระดาน" เพื่อใช้ล้างคำเก่าที่พัง
+    const allDetectedWords = findValidWords(game.grid, game.turnHistory);
+    if (allDetectedWords.length === 0) return alert("การวางไม่ทำให้เกิดคำ!");
 
-  try {
-    let validatedWordsList: string[] = [];
-    let totalScoreThisTurn = 0;
-    let calculationLog: string[] = [];
-    let globalValidCoords = new Set<string>(); // กระดานใหม่จะเหลือแค่พิกัดเหล่านี้
-    const currentPlaced = new Set(game.turnHistory.map(h => `${h.r},${h.c}`));
+    try {
+      let validatedWordsList: string[] = [];
+      let totalScoreThisTurn = 0;
+      let calculationLog: string[] = [];
+      let globalValidCoords = new Set<string>(); // กระดานใหม่จะเหลือแค่พิกัดเหล่านี้
+      const currentPlaced = new Set(game.turnHistory.map(h => `${h.r},${h.c}`));
 
-    for (const info of allDetectedWords) {
-      const res = await fetch('/api/check-word', { method: 'POST', body: JSON.stringify({ word: info.word }) });
-      const data = await res.json();
-      
-      if (!data.valid) {
-        alert(`ไม่พบคำว่า "${info.word}"`);
-        return;
-      }
-      
-      validatedWordsList.push(info.word);
-      info.coords.forEach(c => globalValidCoords.add(c)); // ลงทะเบียนพิกัดที่ถูกต้อง
-
-      // --- Logic สมการคะแนน: (2 + 3x2) x2 ---
-      let wordBase = 0;
-      let wordMultiplier = 1;
-      let mathParts: string[] = [];
-
-      info.coords.forEach(coordStr => {
-        const [r, c] = coordStr.split(',').map(Number);
-        const char = game.grid[r][c];
-        if (!char) return; // ข้ามช่องว่าง
-
-        const baseVal = game.blankTiles.has(coordStr) ? 0 : (LETTER_SCORES[char] || 0);
+      for (const info of allDetectedWords) {
+        const res = await fetch('/api/check-word', { method: 'POST', body: JSON.stringify({ word: info.word }) });
+        const data = await res.json();
         
-        // 💡 แสดงเฉพาะตัวอักษรที่มีคะแนน หรือเป็นตัวหลักของกลุ่ม เพื่อไม่ให้เป็น 0+0+0
-        if (baseVal > 0 || r % 2 !== 0) {
-          let letterTotal = baseVal;
-          let partStr = `${baseVal}`;
-
-          if (currentPlaced.has(coordStr)) {
-            const bonus = BOARD_LAYOUT[(r - 1) / 2][c];
-            if (bonus === '2L') { letterTotal *= 2; partStr += 'x2'; }
-            else if (bonus === '3L') { letterTotal *= 3; partStr += 'x3'; }
-            else if (bonus === '4L') { letterTotal *= 4; partStr += 'x4'; }
-            else if (bonus === '2W' || bonus === 'STAR') wordMultiplier *= 2;
-            else if (bonus === '3W') wordMultiplier *= 3;
-          }
-          wordBase += letterTotal;
-          mathParts.push(partStr);
+        if (!data.valid) {
+          alert(`ไม่พบคำว่า "${info.word}"`);
+          return;
         }
-      });
+        
+        validatedWordsList.push(info.word);
+        info.coords.forEach(c => globalValidCoords.add(c)); // ลงทะเบียนพิกัดที่ถูกต้อง
 
-      const wordFinal = wordBase * wordMultiplier;
-      totalScoreThisTurn += wordFinal;
-      calculationLog.push(`${info.word}: (${mathParts.join(' + ')})${wordMultiplier > 1 ? ` x${wordMultiplier}` : ''} = ${wordFinal}`);
-    }
+        // --- Logic สมการคะแนน: (2 + 3x2) x2 ---
+        let wordBase = 0;
+        let wordMultiplier = 1;
+        let mathParts: string[] = [];
 
-    // --- 💡 2. GLOBAL SURGICAL CLEANUP (ล้าง "แฉ" ออกถ้าไม่เป็นคำแล้ว) ---
-    // สร้างกระดานใหม่จากความว่างเปล่า
-    const nextCleanGrid = game.grid.map((row, r) => row.map((char, c) => {
-      // อนุญาตให้วางเฉพาะตัวอักษรที่ "ยังคงประกอบเป็นคำที่ถูกต้อง" บนกระดานเท่านั้น
-      return globalValidCoords.has(`${r},${c}`) ? char : null;
-    }));
+        info.coords.forEach(coordStr => {
+          const [r, c] = coordStr.split(',').map(Number);
+          const char = game.grid[r][c];
+          if (!char) return; // ข้ามช่องว่าง
 
-    const bingo = calculateBingoBonus(game.turnHistory.length);
-    const grandTotal = totalScoreThisTurn + bingo;
+          const baseVal = game.blankTiles.has(coordStr) ? 0 : (LETTER_SCORES[char] || 0);
+          
+          // 💡 แสดงเฉพาะตัวอักษรที่มีคะแนน หรือเป็นตัวหลักของกลุ่ม เพื่อไม่ให้เป็น 0+0+0
+          if (baseVal > 0 || r % 2 !== 0) {
+            let letterTotal = baseVal;
+            let partStr = `${baseVal}`;
 
-    // แสดง Debug
-    alert(`✅ ยืนยันสำเร็จ:\n${calculationLog.join('\n')}${bingo > 0 ? `\n+ BINGO: 50` : ''}\nรวม: ${grandTotal} แต้ม`);
+            if (currentPlaced.has(coordStr)) {
+              const bonus = BOARD_LAYOUT[(r - 1) / 2][c];
+              if (bonus === '2L') { letterTotal *= 2; partStr += 'x2'; }
+              else if (bonus === '3L') { letterTotal *= 3; partStr += 'x3'; }
+              else if (bonus === '4L') { letterTotal *= 4; partStr += 'x4'; }
+              else if (bonus === '2W' || bonus === 'STAR') wordMultiplier *= 2;
+              else if (bonus === '3W') wordMultiplier *= 3;
+            }
+            wordBase += letterTotal;
+            mathParts.push(partStr);
+          }
+        });
 
-    // อัปเดต State
-    const finalScores = { ...game.scores };
-    if (playerRole === 1) finalScores.p1 += grandTotal; else finalScores.p2 += grandTotal;
+        const wordFinal = wordBase * wordMultiplier;
+        totalScoreThisTurn += wordFinal;
+        calculationLog.push(`${info.word}: (${mathParts.join(' + ')})${wordMultiplier > 1 ? ` x${wordMultiplier}` : ''} = ${wordFinal}`);
+      }
 
-    game.setGrid(nextCleanGrid);
-    game.setScores(finalScores);
-    
-    // จั่วเบี้ยและสลับตา...
-    const numUsed = game.turnHistory.length;
-    game.setP1Rack([...game.p1Rack, ...game.tileBag.slice(0, numUsed)]);
-    game.setTileBag((prev: string[]) => prev.slice(numUsed));
-    game.setTurnHistory([]);
-    game.setTurnCount(prev => prev + 1);
+      // --- 💡 2. GLOBAL SURGICAL CLEANUP (ล้าง "แฉ" ออกถ้าไม่เป็นคำแล้ว) ---
+      // สร้างกระดานใหม่จากความว่างเปล่า
+      const nextCleanGrid = game.grid.map((row, r) => row.map((char, c) => {
+        // อนุญาตให้วางเฉพาะตัวอักษรที่ "ยังคงประกอบเป็นคำที่ถูกต้อง" บนกระดานเท่านั้น
+        return globalValidCoords.has(`${r},${c}`) ? char : null;
+      }));
 
-    if (mode === 'MULTI' && roomInfo) {
-      await fetch('/api/multiplayer/move', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          roomId: roomInfo.id, newGrid: nextCleanGrid, newScores: finalScores,
-          senderRole: playerRole, words: validatedWordsList, nextTurn: playerRole === 1 ? 2 : 1
-        })
-      });
-    }
-    game.setCurrentPlayer(mode === 'SOLO' ? 2 : (playerRole === 1 ? 2 : 1));
+      const bingo = calculateBingoBonus(game.turnHistory.length);
+      const grandTotal = totalScoreThisTurn + bingo;
 
-  } catch (e) { alert("ระบบขัดข้อง"); }
-};
+      // แสดง Debug
+      alert(`✅ ยืนยันสำเร็จ:\n${calculationLog.join('\n')}${bingo > 0 ? `\n+ BINGO: 50` : ''}\nรวม: ${grandTotal} แต้ม`);
+
+      // อัปเดต State
+      const finalScores = { ...game.scores };
+      if (playerRole === 1) finalScores.p1 += grandTotal; else finalScores.p2 += grandTotal;
+
+      game.setGrid(nextCleanGrid);
+      game.setScores(finalScores);
+      
+      // จั่วเบี้ยและสลับตา...
+      const numUsed = game.turnHistory.length;
+      game.setP1Rack([...game.p1Rack, ...game.tileBag.slice(0, numUsed)]);
+      game.setTileBag((prev: string[]) => prev.slice(numUsed));
+      game.setTurnHistory([]);
+      game.setTurnCount(prev => prev + 1);
+
+      if (mode === 'MULTI' && roomInfo) {
+        await fetch('/api/multiplayer/move', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            roomId: roomInfo.id, newGrid: nextCleanGrid, newScores: finalScores,
+            senderRole: playerRole, words: validatedWordsList, nextTurn: playerRole === 1 ? 2 : 1
+          })
+        });
+      }
+      game.setCurrentPlayer(mode === 'SOLO' ? 2 : (playerRole === 1 ? 2 : 1));
+
+    } catch (e) { alert("ระบบขัดข้อง"); }
+  };
 
   return (
     <div className="flex flex-col items-center justify-start gap-4 p-4 bg-slate-50 min-h-screen font-sans selection:bg-indigo-100 overflow-x-hidden">      
