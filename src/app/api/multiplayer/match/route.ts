@@ -10,52 +10,64 @@ const pusher = new Pusher({
   useTLS: true,
 });
 
-let waitingRoomId: string | null = null; // คิวสำหรับสุ่มห้อง
+let waitingRoomId: string | null = null; 
+let pendingHostNames: Record<string, string> = {}; // เก็บชื่อ P1 ไว้รอส่งให้ P2
 
 export async function POST(req: Request) {
   const body = await req.json();
-  const { action, roomId, role, gameData } = body;
+  // 💡 ดึง 'name' ออกมาจาก body เพื่อใช้เก็บชื่อผู้เล่น
+  const { action, roomId, role, name, gameData } = body;
 
-  // เพิ่ม Action นี้เพื่อกระจายข่าวสารการเปลี่ยนตา/แลกเบี้ย
-  if (action === 'update_game') {
-    await pusher.trigger(`room-${roomId}`, 'game-updated', {
-      role,
-      gameData // ข้อมูลสถานะเกมล่าสุด
-    });
-  }
-
-  // 1. ระบบสุ่มหาคู่ (Random Match)
+  // --- 1. ระบบสุ่มหาคู่ (Random Match) ---
   if (action === 'find_match') {
     if (waitingRoomId) {
       const id = waitingRoomId;
-      waitingRoomId = null; 
-      return NextResponse.json({ roomId: id, role: 2 }); // เราเป็นคนจอย
+      waitingRoomId = null;
+      const hostName = pendingHostNames[id]; // ดึงชื่อ P1 ที่รออยู่
+      delete pendingHostNames[id];
+      
+      // P2 (คนจอย) จะได้รับชื่อ P1 (hostName) ทันทีจาก Response นี้
+      return NextResponse.json({ roomId: id, role: 2, opponentName: hostName });
     } else {
       const id = `RANDOM_${Math.floor(1000 + Math.random() * 9000)}`;
       waitingRoomId = id;
-      return NextResponse.json({ roomId: id, role: 1 }); // เราเป็นคนสร้าง
+      pendingHostNames[id] = name; // ✅ เก็บชื่อ P1 ไว้ใน Record
+      return NextResponse.json({ roomId: id, role: 1 });
     }
   }
 
-  // 2. ระบบทักทาย (Handshake): P2 บอก P1 ว่า "ฉันพร้อมรับข้อมูลแล้ว"
+  // --- 2. ระบบทักทาย (Handshake) ---
   if (action === 'notify_ready_to_pair') {
-    const starter = Math.random() > 0.5 ? 1 : 2; // สุ่มคนเริ่มเกมที่นี่
-    await pusher.trigger(`room-${roomId}`, 'match-connected', { starter });
+    const starter = Math.random() > 0.5 ? 1 : 2;
+    // 💡 ส่งชื่อ P2 ไปให้ P1 ผ่าน Pusher ทันทีที่เชื่อมต่อ
+    await pusher.trigger(`room-${roomId}`, 'match-connected', { 
+      starter, 
+      opponentName: name // ส่งชื่อ P2 ไปให้ P1
+    });
     return NextResponse.json({ success: true, starter });
   }
 
-  // 3. ระบบยืนยันความพร้อมเล่น (Ready Check)
-  if (action === 'set_ready') {
-    // ส่งสัญญาณบอก "ทุกคน" ในห้องว่าบทบาทนี้พร้อมแล้ว
-    // ตัด socket_id ออกเพื่อให้สัญญาณส่งถึงทุกคนใน Channel ทันที
-    await pusher.trigger(`room-${roomId}`, 'player-ready', { 
-        role, 
-        playerReady: true 
+  // --- 3. ระบบกระจายการเดินเกม ---
+  if (action === 'update_game') {
+    await pusher.trigger(`room-${roomId}`, 'game-updated', {
+      role,
+      gameData 
     });
     return NextResponse.json({ success: true });
-    }
+  }
 
-  // 4. ระบบแจ้งคนออกเกม
+  // --- 4. ระบบยืนยันความพร้อมใน Lobby (Ready Check) ---
+  if (action === 'set_ready') {
+    await pusher.trigger(`room-${roomId}`, 'player-ready', { 
+        role, 
+        playerReady: true,
+        name: name,
+        gameSetup: body.gameSetup 
+    });
+    return NextResponse.json({ success: true });
+  }
+
+  // --- 5. ระบบแจ้งคนออกเกม ---
   if (action === 'player_left' || action === 'leave_room') {
     await pusher.trigger(`room-${roomId}`, 'opponent-disconnected', { role });
     return NextResponse.json({ success: true });

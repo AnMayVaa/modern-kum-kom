@@ -1,7 +1,6 @@
 // src/hooks/useGameActions.ts
 import { useState, useEffect } from 'react';
 import { INITIAL_LETTER_QUANTITIES, LETTER_SCORES } from '@/lib/constants';
-import { findValidWords, calculateBingoBonus } from '@/lib/gameLogic';
 
 export type TurnHistoryItem = {
   r: number;
@@ -11,8 +10,18 @@ export type TurnHistoryItem = {
   originalChar: string | null; 
 };
 
-export const useGameActions = (mode: string, roomInfo: any, playerRole: number) => {
-  // --- STATE MANAGEMENT ---
+export type MenuState = { 
+  r: number; 
+  c: number; 
+  originalChar?: string | null; 
+} | null;
+
+/**
+ * Hook สำหรับจัดการ State และ Action ของเกม
+ * @param initialData ข้อมูลจาก Lobby (ถุงเบี้ย, เบี้ยเริ่มต้น, ใครเริ่มก่อน)
+ */
+export const useGameActions = (mode: string, roomInfo: any, playerRole: number, initialData?: any) => {
+  // --- 1. GAME STATES ---
   const [grid, setGrid] = useState<(string | null)[][]>(Array(31).fill(null).map(() => Array(15).fill(null)));
   const [p1Rack, setP1Rack] = useState<string[]>([]);
   const [botRack, setBotRack] = useState<string[]>([]);
@@ -21,34 +30,61 @@ export const useGameActions = (mode: string, roomInfo: any, playerRole: number) 
   const [currentPlayer, setCurrentPlayer] = useState(roomInfo?.starter || 1);
   const [scores, setScores] = useState({ p1: 0, p2: 0 });
   const [blankTiles, setBlankTiles] = useState<Set<string>>(new Set());
-  
-  // 💡 แก้ไขจุดนี้: กำหนด Type ให้ useState ตรงกับ TurnHistoryItem
   const [turnHistory, setTurnHistory] = useState<TurnHistoryItem[]>([]);
   
+  // สถานะสำหรับการดักข้อมูลแชร์ และกติกาจบเกม
+  const [p2InitialRack, setP2InitialRack] = useState<string[]>([]); 
+  const [skipCount, setSkipCount] = useState(0);
+  const [isGameOver, setIsGameOver] = useState(false);
+
+  // UI States
   const [selectedRackIndex, setSelectedRackIndex] = useState<number | null>(null);
-  const [blankMenu, setBlankMenu] = useState<{ r: number, c: number, originalChar?: string | null } | null>(null);
-  const [diacriticMenu, setDiacriticMenu] = useState<{ r: number, c: number } | null>(null);
+  const [blankMenu, setBlankMenu] = useState<MenuState>(null);
+  const [diacriticMenu, setDiacriticMenu] = useState<MenuState>(null);
 
-  // --- INITIALIZATION ---
+  // --- 2. INITIALIZATION (ระบบดักข้อมูล Shared Data) ---
   useEffect(() => {
-    const bag: string[] = [];
-    Object.entries(INITIAL_LETTER_QUANTITIES).forEach(([char, qty]) => {
-      for (let i = 0; i < qty; i++) bag.push(char);
-    });
-    const shuffled = bag.sort(() => Math.random() - 0.5);
-    setP1Rack(shuffled.splice(0, 9));
-    if (mode === 'SOLO') setBotRack(shuffled.splice(0, 9));
-    setTileBag(shuffled);
-  }, [mode]);
+    // กรณีที่ 1: ได้รับข้อมูล Shared Bag มาจากหน้า Lobby (Multiplayer)
+    if (mode === 'MULTI' && initialData) {
+      console.log("🎮 Initializing with SHARED DATA from Lobby");
+      setTileBag(initialData.tileBag);
+      // P1 และ P2 จะได้เบี้ยคนละชุดที่ถูกสุ่มไว้แล้วตั้งแต่ต้น
+      setP1Rack(playerRole === 1 ? initialData.p1Rack : initialData.p2Rack);
+      setCurrentPlayer(initialData.starter);
+    } 
+    // กรณีที่ 2: เริ่มเกมใหม่ (SOLO หรือ MULTI ที่เป็น Host เริ่มครั้งแรก)
+    else if (mode === 'SOLO' || (mode === 'MULTI' && playerRole === 1 && tileBag.length === 0)) {
+      console.log("🎲 Initializing NEW GAME locally");
+      const bag: string[] = [];
+      Object.entries(INITIAL_LETTER_QUANTITIES).forEach(([char, qty]) => {
+        for (let i = 0; i < qty; i++) bag.push(char);
+      });
+      const shuffled = bag.sort(() => Math.random() - 0.5);
+      
+      const p1Init = shuffled.splice(0, 9);
+      if (mode === 'SOLO') {
+        setBotRack(shuffled.splice(0, 9));
+      } else {
+        // เก็บเบี้ยชุดที่สองไว้ใน p2InitialRack เพื่อส่งไปให้เพื่อนผ่าน Lobby
+        setP2InitialRack(shuffled.splice(0, 9));
+      }
+      setP1Rack(p1Init);
+      setTileBag(shuffled);
+    }
+  }, [mode, initialData, playerRole]);
 
-  // --- CORE ACTIONS ---
+  // --- 3. HELPER FUNCTIONS ---
+  const calculateRackScore = (rack: string[]) => {
+    return rack.reduce((sum, char) => sum + (LETTER_SCORES[char] || 0), 0);
+  };
+
+  // --- 4. CORE ACTIONS ---
   const placeTile = (r: number, c: number, char: string, isBlank: boolean, original: string | null = null) => {
     setGrid(prev => {
       const next = [...prev.map(row => [...row])];
       next[r][c] = char;
       return next;
     });
-    // บันทึกประวัติโดยใช้โครงสร้างที่ถูกต้อง
     setTurnHistory(prev => [...prev, { r, c, char, isBlank, originalChar: original }]);
   };
 
@@ -57,9 +93,7 @@ export const useGameActions = (mode: string, roomInfo: any, playerRole: number) 
     else if (selectedRackIndex === index) setSelectedRackIndex(null);
     else {
       const newRack = [...p1Rack];
-      const temp = newRack[selectedRackIndex];
-      newRack[selectedRackIndex] = newRack[index];
-      newRack[index] = temp;
+      [newRack[selectedRackIndex], newRack[index]] = [newRack[index], newRack[selectedRackIndex]];
       setP1Rack(newRack);
       setSelectedRackIndex(null);
     }
@@ -78,7 +112,6 @@ export const useGameActions = (mode: string, roomInfo: any, playerRole: number) 
       if (h.r % 2 !== 0) {
         nextRack.push(h.isBlank ? '0' : h.char);
       }
-      // คืนค่าเดิมกลับสู่กระดาน (ถ้าทับมาจะได้ตัวเดิม ถ้าวางช่องว่างจะได้ null)
       nextGrid[h.r][h.c] = h.originalChar; 
     });
 
@@ -88,16 +121,28 @@ export const useGameActions = (mode: string, roomInfo: any, playerRole: number) 
   };
 
   const handleCloseModals = () => {
+    // ✅ แก้ไข typo จาก setP Rack เป็น setP1Rack
     if (blankMenu) setP1Rack(prev => [...prev, '0']);
     setBlankMenu(null); 
     setDiacriticMenu(null);
   };
 
   return {
-    grid, setGrid, p1Rack, setP1Rack, botRack, setBotRack, tileBag, setTileBag,
-    scores, setScores, turnCount, setTurnCount, currentPlayer, setCurrentPlayer,
-    blankTiles, setBlankTiles, turnHistory, setTurnHistory,
-    selectedRackIndex, setSelectedRackIndex, blankMenu, setBlankMenu, diacriticMenu, setDiacriticMenu,
-    placeTile, handleRackSelect, handleShuffle, handleRecall, handleCloseModals
+    grid, setGrid, 
+    p1Rack, setP1Rack, 
+    botRack, setBotRack, 
+    tileBag, setTileBag,
+    scores, setScores, 
+    turnCount, setTurnCount, 
+    currentPlayer, setCurrentPlayer,
+    blankTiles, setBlankTiles, 
+    turnHistory, setTurnHistory,
+    p2InitialRack,
+    skipCount, setSkipCount,
+    isGameOver, setIsGameOver,
+    selectedRackIndex, setSelectedRackIndex, 
+    blankMenu, setBlankMenu, 
+    diacriticMenu, setDiacriticMenu,
+    placeTile, handleRackSelect, handleShuffle, handleRecall, handleCloseModals, calculateRackScore
   };
 };

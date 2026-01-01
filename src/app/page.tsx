@@ -4,6 +4,8 @@ import Board from '@/components/Game/Board';
 import Pusher from 'pusher-js';
 import { signIn, useSession } from 'next-auth/react';
 
+import { INITIAL_LETTER_QUANTITIES } from '@/lib/constants';
+
 type ViewState = 'IDENTITY' | 'MENU' | 'SOLO' | 'MULTI_LOBBY' | 'SEARCHING' | 'ROOM_CREATED' | 'GAME';
 
 export default function Home() {
@@ -19,6 +21,23 @@ export default function Home() {
   const [isMyReady, setIsMyReady] = useState(false);
   const [isOpponentReady, setIsOpponentReady] = useState(false);
   const [showMatchPopup, setShowMatchPopup] = useState(false);
+
+  const [initialGameData, setInitialGameData] = useState<any>(null);
+
+  // 💡 1. ฟังก์ชันสุ่มเบี้ย (เฉพาะ P1 เป็นคนทำ)
+  const generateInitialData = () => {
+    const bag: string[] = [];
+    Object.entries(INITIAL_LETTER_QUANTITIES).forEach(([char, qty]) => {
+      for (let i = 0; i < qty; i++) bag.push(char);
+    });
+    const shuffled = bag.sort(() => Math.random() - 0.5);
+    return {
+      tileBag: shuffled.slice(18),   // เบี้ยที่เหลือในถุง
+      p1Rack: shuffled.slice(0, 9),  // เบี้ย P1
+      p2Rack: shuffled.slice(9, 18), // เบี้ย P2
+      starter: Math.random() > 0.5 ? 1 : 2
+    };
+  };
 
   // --- [LOGIC] จัดการชื่อผู้เล่น (Identity) ---
   useEffect(() => {
@@ -57,21 +76,26 @@ export default function Home() {
     channel.bind('player-joined', onMatch);
 
     // แก้ไข: รับชื่อคู่แข่งผ่าน Pusher
-    channel.bind('player-ready', (data: { role: 1 | 2; playerReady: boolean; name?: string }) => {
+    channel.bind('player-ready', (data: any) => {
       if (data.role !== roomData.role) {
         setIsOpponentReady(data.playerReady);
         if (data.name) setOpponentName(data.name);
+        
+        // 💡 ถ้าเราเป็น P2 ให้เก็บข้อมูลเบี้ยที่ P1 ส่งมา
+        if (roomData.role === 2 && data.gameSetup) {
+          setInitialGameData(data.gameSetup);
+        }
       }
     });
 
     // เพิ่มการดักฟังเมื่อคู่แข่งออกจากห้อง
-  channel.bind('player-left', (data: { role: number }) => {
-    alert("คู่แข่งออกจากห้องแล้ว");
-    setIsOpponentReady(false);
-    setShowMatchPopup(false);
-    setRoomData(null);
-    if (view !== 'MENU') setView('MULTI_LOBBY'); // เด้งกลับไปหน้า Lobby
-  });
+    channel.bind('player-left', (data: { role: number }) => {
+      alert("คู่แข่งออกจากห้องแล้ว");
+      setIsOpponentReady(false);
+      setShowMatchPopup(false);
+      setRoomData(null);
+      if (view !== 'MENU') setView('MULTI_LOBBY'); // เด้งกลับไปหน้า Lobby
+    });
 
   return () => { 
     channel.unbind_all(); 
@@ -87,21 +111,21 @@ export default function Home() {
       const pusher = new Pusher(process.env.NEXT_PUBLIC_PUSHER_KEY!, { cluster: 'ap1' });
       const channel = pusher.subscribe(`room-${roomData.id}`);
 
+      // ในฟังก์ชัน notify_ready_to_pair (ฝั่ง P2)
       pusher.connection.bind('connected', async () => {
         if (roomData.role === 2) {
-          const res = await fetch('/api/multiplayer/match', {
+          await fetch('/api/multiplayer/match', {
             method: 'POST',
-            body: JSON.stringify({ action: 'notify_ready_to_pair', roomId: roomData.id })
+            body: JSON.stringify({ action: 'notify_ready_to_pair', roomId: roomData.id, name: playerName }) // 💡 ส่งชื่อ P2 ไป
           });
-          const data = await res.json();
-          setRoomData(prev => prev ? { ...prev, starter: data.starter } : null);
-          setShowMatchPopup(true);
         }
       });
 
-      channel.bind('match-connected', (data: { starter: 1 | 2 }) => {
+      // ใน useEffect ที่ดักฟัง Pusher (ส่วน Lobby)
+      channel.bind('match-connected', (data: any) => {
         if (roomData.role === 1) {
           setRoomData(prev => prev ? { ...prev, starter: data.starter } : null);
+          if (data.opponentName) setOpponentName(data.opponentName); // 💡 P1 เห็นชื่อ P2 ทันที
           setShowMatchPopup(true);
         }
       });
@@ -113,13 +137,17 @@ export default function Home() {
   // --- [ACTIONS] ฟังก์ชันต่างๆ (เพิ่มการส่งชื่อ) ---
 
   const handleRandomMatch = async () => {
-    setView('SEARCHING'); setIsMyReady(false); setIsOpponentReady(false);
-    try {
-      const res = await fetch('/api/multiplayer/match', { method: 'POST', body: JSON.stringify({ action: 'find_match' }) });
-      const data = await res.json();
-      setRoomData({ id: data.roomId, role: data.role, starter: 1 });
-      if (data.role === 2) setShowMatchPopup(true);
-    } catch (e) { alert("ระบบสุ่มห้องขัดข้อง"); setView('MULTI_LOBBY'); }
+    setView('SEARCHING');
+    const res = await fetch('/api/multiplayer/match', { 
+      method: 'POST', 
+      body: JSON.stringify({ action: 'find_match', name: playerName }) // 💡 ส่งชื่อไปด้วย
+    });
+    const data = await res.json();
+    setRoomData({ id: data.roomId, role: data.role, starter: 1 });
+    if (data.role === 2) {
+      if (data.opponentName) setOpponentName(data.opponentName); // 💡 P2 เห็นชื่อ P1 ทันที
+      setShowMatchPopup(true);
+    }
   };
 
   const handleCreateRoom = async () => {
@@ -143,13 +171,27 @@ export default function Home() {
     } catch (e) { alert("การเชื่อมต่อล้มเหลว"); }
   };
 
-  // แก้ไข: ส่งชื่อเราไปให้เพื่อนเห็น
+  // 💡 2. แก้ไข handleSetReady
   const handleSetReady = async () => {
     if (!roomData) return;
     setIsMyReady(true);
+
+    let setupData = null;
+    if (roomData.role === 1) {
+      setupData = generateInitialData();
+      setInitialGameData(setupData); // P1 เซฟไว้ในเครื่องตัวเองด้วย
+    }
+
     await fetch('/api/multiplayer/match', {
       method: 'POST',
-      body: JSON.stringify({ action: 'set_ready', roomId: roomData.id, role: roomData.role, playerReady: true, name: playerName })
+      body: JSON.stringify({ 
+        action: 'set_ready', 
+        roomId: roomData.id, 
+        role: roomData.role, 
+        playerReady: true, 
+        name: playerName,
+        gameSetup: setupData // P1 ส่งก้อนเบี้ยไปให้ P2
+      })
     });
   };
 
@@ -206,14 +248,20 @@ export default function Home() {
 
   // ส่วนการ Render หน้า GAME
   if (view === 'GAME') {
-    const gameMode = roomData?.id === 'SOLO' ? 'SOLO' : 'MULTI';
+    const isSolo = roomData?.id === 'SOLO';
+    
+    // 🛡️ ดัก P2: ถ้ายังไม่มีข้อมูลเบี้ยจาก P1 ห้ามเข้าหน้า Board (ป้องกัน BAG 0)
+    if (!isSolo && !initialGameData) {
+      return <div className="min-h-screen flex items-center justify-center">กำลังซิงค์ข้อมูลเบี้ย...</div>;
+    }
+
     return (
       <Board 
-        mode={gameMode} 
+        mode={isSolo ? 'SOLO' : 'MULTI'} 
         roomInfo={roomData} 
         playerName={playerName} 
         opponentName={opponentName} 
-        // ใช้ฟังก์ชันล้างสถานะแทนการ reload หน้าจอ
+        initialData={initialGameData} // 💡 ส่งข้อมูลนี้เข้า Board
         onBack={handleBackToMenu} 
       />
     );
