@@ -50,10 +50,10 @@ export const useTurnActions = (game: any, mode: string, roomInfo: any, playerRol
   };
 
   const handleSubmit = async () => {
-    // 💡 ดักถ้าจบเกมแล้ว ห้ามกด Submit
+    // 💡 ดักถ้าจบเกมแล้ว หรือยังไม่ได้วางเบี้ย ห้ามกด Submit
     if (game.isGameOver || game.turnHistory.length === 0) return;
 
-    // ตรวจสอบตาแรกต้องทับดาว
+    // ตรวจสอบตาแรกต้องทับดาว (พิกัด 15,7)
     if (game.turnCount === 0 && !game.turnHistory.some((h: any) => h.r === 15 && h.c === 7)) {
       return alert("ตาแรกต้องทับดาว!");
     }
@@ -62,14 +62,23 @@ export const useTurnActions = (game: any, mode: string, roomInfo: any, playerRol
     if (allWords.length === 0) return alert("การวางไม่ทำให้เกิดคำ!");
 
     try {
-      let turnSum = 0; let log: string[] = []; let validCoords = new Set<string>();
+      let turnSum = 0; 
+      let log: string[] = []; 
+      let validCoords = new Set<string>();
       const turnPlaced = new Set(game.turnHistory.map((h: any) => `${h.r},${h.c}`));
 
-      // --- ส่วนตรวจคำศัพท์และคิดคะแนน (เหมือนเดิม) ---
+      // --- ส่วนตรวจคำศัพท์และคิดคะแนนผ่าน API ---
       for (const info of allWords) {
-        const res = await fetch('/api/check-word', { method: 'POST', body: JSON.stringify({ word: info.word }) });
+        const res = await fetch('/api/check-word', { 
+          method: 'POST', 
+          body: JSON.stringify({ word: info.word }) 
+        });
         const data = await res.json();
-        if (!data.valid) { alert(`ไม่พบคำว่า "${info.word}"`); return; }
+        
+        if (!data.valid) { 
+          alert(`ไม่พบคำว่า "${info.word}" ในพจนานุกรม`); 
+          return; 
+        }
         
         info.coords.forEach((c: string) => validCoords.add(c)); 
         let pts = 0, mult = 1, math: string[] = [];
@@ -77,14 +86,19 @@ export const useTurnActions = (game: any, mode: string, roomInfo: any, playerRol
         info.coords.forEach((coord: string) => {
           const [r, c] = coord.split(',').map(Number);
           const char = game.grid[r][c];
+          
+          // ถ้าเป็นเบี้ยว่าง (Blank) ให้ค่าเป็น 0
           const val = game.blankTiles.has(coord) ? 0 : (LETTER_SCORES[char!] || 0);
           
           if (val > 0 || r % 2 !== 0) {
             let letterPts = val, s = `${val}`;
+            // คิดโบนัสเฉพาะเบี้ยที่เพิ่งวางในตานี้
             if (turnPlaced.has(coord)) {
               const b = BOARD_LAYOUT[(r-1)/2][c];
-              if (b==='2L'){ letterPts*=2; s+='x2'; } else if (b==='3L'){ letterPts*=3; s+='x3'; }
-              else if (b==='4L'){ letterPts*=4; s+='x4'; } else if (b==='STAR'||b==='2W') mult*=2;
+              if (b==='2L'){ letterPts*=2; s+='x2'; } 
+              else if (b==='3L'){ letterPts*=3; s+='x3'; }
+              else if (b==='4L'){ letterPts*=4; s+='x4'; } 
+              else if (b==='STAR'||b==='2W') mult*=2;
               else if (b==='3W') mult*=3;
             }
             pts += letterPts; math.push(s);
@@ -94,42 +108,57 @@ export const useTurnActions = (game: any, mode: string, roomInfo: any, playerRol
         log.push(`${info.word}: (${math.join('+')})${mult > 1 ? `x${mult}`:''} = ${pts*mult}`);
       }
 
-      // 💡 เตรียมข้อมูลอัปเดต
-      const nextGrid = game.grid.map((row: any, r: number) => row.map((char: any, c: number) => validCoords.has(`${r},${c}`) ? char : null));
+      // --- เตรียมข้อมูลอัปเดตสถานะเกม ---
+      const nextGrid = game.grid.map((row: any, r: number) => 
+        row.map((char: any, c: number) => validCoords.has(`${r},${c}`) ? char : null)
+      );
+      
       const bingo = calculateBingoBonus(game.turnHistory.length);
       const grandTotal = turnSum + bingo;
+      
       const nextBag = game.tileBag.slice(game.turnHistory.length);
       const nextRack = [...game.p1Rack, ...game.tileBag.slice(0, game.turnHistory.length)];
       
       const updatedScores = { ...game.scores };
-      if (playerRole === 1) updatedScores.p1 += grandTotal; else updatedScores.p2 += grandTotal;
+      if (playerRole === 1) updatedScores.p1 += grandTotal; 
+      else updatedScores.p2 += grandTotal;
 
       // ตรวจสอบสถานะจบเกม (เบี้ยหมดถุงและหมดมือ)
       const status = checkGameStatus(updatedScores, nextRack, game.botRack, nextBag, 0);
-      const nextTurnCount = game.turnCount + 1; // ✅ เก็บค่า Turn ล่าสุด
+      const nextTurnCount = game.turnCount + 1;
 
+      // 💡 เตรียมข้อมูลสรุปการเดิน (Move Summary) เพื่อส่งให้คู่แข่ง
+      const moveSummary = {
+        log: log,
+        bingo: bingo,
+        total: grandTotal
+      };
+
+      // แสดง Alert ฝั่งตัวเอง
       alert(`✅ ยืนยันสำเร็จ:\n${log.join('\n')}${bingo > 0 ? `\n+ BINGO: 50` : ''}\nรวม: ${grandTotal} แต้ม`);
       if (status.msg) alert(status.msg);
 
-      // 💡 1. อัปเดตเครื่องตัวเองครั้งเดียวให้ครบ (ลบส่วนที่ซ้ำออก)
+      // --- อัปเดต State เครื่องตัวเอง ---
       game.setGrid(nextGrid);
       game.setScores(status.finalScores);
       game.setTileBag(nextBag);
       game.setP1Rack(nextRack);
       game.setTurnHistory([]);
       game.setTurnCount(nextTurnCount);
-      game.setSkipCount(0); // รีเซ็ตแต้มข้ามเป็น 0 เสมอเมื่อลงคำสำเร็จ
+      game.setSkipCount(0);
       
       if (status.isEnd) {
-        game.setIsGameOver(true); // ✅ ล็อคกระดานเครื่องตัวเองทันทีเมื่อชนะ
+        game.setIsGameOver(true);
       }
 
-      // 💡 2. ส่งข้อมูลไปซิงค์กับเพื่อน
+      // 📡 💡 ส่งข้อมูลไปซิงค์กับเพื่อน (พร้อมรายละเอียดการคิดคะแนน lastMove)
       if (mode === 'MULTI') {
         await fetch('/api/multiplayer/match', {
           method: 'POST',
           body: JSON.stringify({
-            action: 'update_game', roomId: roomInfo.id, role: playerRole,
+            action: 'update_game', 
+            roomId: roomInfo.id, 
+            role: playerRole,
             gameData: { 
               grid: nextGrid, 
               scores: status.finalScores, 
@@ -137,16 +166,21 @@ export const useTurnActions = (game: any, mode: string, roomInfo: any, playerRol
               currentPlayer: playerRole === 1 ? 2 : 1, 
               skipCount: 0, 
               turnCount: nextTurnCount, 
-              isGameOver: status.isEnd 
+              isGameOver: status.isEnd,
+              lastMove: moveSummary // ✅ คู่แข่งจะนำก้อนนี้ไปแสดงผล alert
             }
           })
         });
       }
 
+      // สลับตาผู้เล่น (ถ้าเกมยังไม่จบ)
       if (!status.isEnd) {
         game.setCurrentPlayer(mode === 'SOLO' ? 2 : (playerRole === 1 ? 2 : 1));
       }
-    } catch (e) { alert("ระบบขัดข้อง"); }
+    } catch (e) { 
+      console.error(e);
+      alert("ระบบขัดข้อง กรุณาลองใหม่"); 
+    }
   };
 
   const handleExchange = async (confirmCall: (msg: string) => boolean) => {

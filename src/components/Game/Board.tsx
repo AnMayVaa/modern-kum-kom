@@ -43,13 +43,24 @@ export default function Board({ mode, roomInfo, onBack, playerName: pName, oppon
 
     channel.bind('game-updated', (data: any) => {
       if (data.role !== playerRole) {
-        console.log("🔄 ได้รับอัปเดตจากคู่แข่ง");
+        const gd = data.gameData;
         
-        // 💡 ซิงค์ข้อมูลพื้นฐาน
-        game.setGrid(data.gameData.grid);
-        game.setCurrentPlayer(data.gameData.currentPlayer);
-        game.setTileBag(data.gameData.tileBag);
-        game.setScores(data.gameData.scores);
+        // 💡 3. ตรวจสอบว่ามีการส่งรายละเอียดการลงคำมาหรือไม่
+        if (gd.lastMove) {
+          const { log, bingo, total } = gd.lastMove;
+          alert(
+            `🎮 ${opponentName} ลงคำ:\n` + 
+            `${log.join('\n')}` + 
+            `${bingo > 0 ? '\n+ BINGO: 50' : ''}\n` + 
+            `รวม: ${total} แต้ม`
+          );
+        }
+
+        // ซิงค์สถานะเกมปกติ
+        game.setGrid(gd.grid);
+        game.setCurrentPlayer(gd.currentPlayer);
+        game.setTileBag(gd.tileBag);
+        game.setScores(gd.scores);
 
         // 💡 จุดสำคัญ: ซิงค์ turnCount เพื่อให้เงื่อนไข "ทับดาว" ถูกต้อง
         if (data.gameData.turnCount !== undefined) {
