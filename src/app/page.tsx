@@ -3,10 +3,13 @@ import { useState, useEffect } from 'react';
 import Board from '@/components/Game/Board';
 import Pusher from 'pusher-js';
 import { signIn, useSession } from 'next-auth/react';
+import { User, BookOpen } from 'lucide-react';
+
+import { UserProfile } from '@/components/UserProfile/UserProfile';
 
 import { INITIAL_LETTER_QUANTITIES } from '@/lib/constants';
 
-type ViewState = 'IDENTITY' | 'MENU' | 'SOLO' | 'MULTI_LOBBY' | 'SEARCHING' | 'ROOM_CREATED' | 'GAME';
+type ViewState = 'IDENTITY' | 'MENU' | 'SOLO' | 'MULTI_LOBBY' | 'SEARCHING' | 'ROOM_CREATED' | 'GAME' | 'PROFILE';
 
 export default function Home() {
   const { data: session } = useSession();
@@ -267,8 +270,32 @@ export default function Home() {
     );
   }
 
+  if (view === 'PROFILE') {
+    return (
+      <UserProfile
+        playerName={playerName}
+        avatarUrl={session?.user?.image || null} // ส่ง URL รูปโปรไฟล์จาก Google (ถ้ามี)
+        onBack={() => setView('MENU')}
+      />
+    );
+  }
+
   return (
     <main className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6 text-slate-800 font-sans">
+
+        <div className="absolute top-6 right-6 flex gap-4">
+          {/* ปุ่ม Dictionary (ยังไม่ทำงาน) */}
+          <button className="p-3 bg-white rounded-full shadow-md text-slate-400 hover:text-indigo-500 transition-colors">
+            <BookOpen size={24} strokeWidth={2.5} />
+          </button>
+          {/* ปุ่ม User Profile */}
+          <button onClick={() => setView('PROFILE')} className="p-3 bg-white rounded-full shadow-md text-slate-400 hover:text-indigo-500 transition-colors relative">
+            <User size={24} strokeWidth={2.5} />
+            {/* แสดงจุดแจ้งเตือน (ถ้ามี) */}
+            {/* <div className="absolute top-0 right-0 w-3 h-3 bg-rose-500 rounded-full ring-2 ring-white"></div> */}
+          </button>
+        </div>
+
       {view === 'MENU' && (
         <div className="flex flex-col items-center">
           <h1 className="text-7xl font-black text-indigo-600 mb-12 italic">KUM-KOM</h1>
