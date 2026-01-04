@@ -46,20 +46,28 @@ export default function Home() {
 
   // --- [LOGIC] จัดการชื่อผู้เล่น (Identity) ---
   useEffect(() => {
-    // 1. ถ้า Login ผ่าน Google ให้ใช้ชื่อนั้นทันที
+    // 1. ถ้า Login ผ่าน Google
     if (session?.user?.name) {
       setPlayerName(session.user.name);
-      setView('MENU');
+      
+      // ✅ แก้ไข: เพิ่มเงื่อนไขเช็คว่า ต้องอยู่หน้า IDENTITY เท่านั้นถึงจะเปลี่ยน
+      if (view === 'IDENTITY') {
+        setView('MENU');
+      }
     } 
-    // 2. ถ้าเป็น Guest ให้เช็คว่าเคยกรอกชื่อทิ้งไว้ในเครื่องไหม
+    // 2. ถ้าเป็น Guest
     else {
       const savedName = localStorage.getItem('kumkom_name');
       if (savedName) {
         setPlayerName(savedName);
-        setView('MENU'); // ถ้ามีชื่อแล้ว ข้ามหน้า Identity ไปหน้า Menu เลย
+        
+        // ✅ แก้ไข: เพิ่มเงื่อนไขเดียวกัน
+        if (view === 'IDENTITY') {
+          setView('MENU'); 
+        }
       }
     }
-  }, [session]);
+  }, [session, view]);
 
   const handleSaveName = () => {
     if (!playerName.trim()) return alert("กรุณาใส่ชื่อก่อนครับ");
