@@ -7,9 +7,11 @@ import { User, BookOpen } from 'lucide-react';
 
 import { UserProfile } from '@/components/UserProfile/UserProfile';
 
+import { Dictionary } from '@/components/Dictionary/Dictionary';
+
 import { INITIAL_LETTER_QUANTITIES } from '@/lib/constants';
 
-type ViewState = 'IDENTITY' | 'MENU' | 'SOLO' | 'MULTI_LOBBY' | 'SEARCHING' | 'ROOM_CREATED' | 'GAME' | 'PROFILE';
+type ViewState = 'IDENTITY' | 'MENU' | 'SOLO' | 'MULTI_LOBBY' | 'SEARCHING' | 'ROOM_CREATED' | 'GAME' | 'PROFILE' | 'DICTIONARY';
 
 export default function Home() {
   const { data: session } = useSession();
@@ -280,12 +282,19 @@ export default function Home() {
     );
   }
 
+  if (view === 'DICTIONARY') {
+    return <Dictionary onBack={() => setView('MENU')} />; // ✅ แสดงหน้า Dictionary
+  }
+
   return (
     <main className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6 text-slate-800 font-sans">
 
         <div className="absolute top-6 right-6 flex gap-4">
-          {/* ปุ่ม Dictionary (ยังไม่ทำงาน) */}
-          <button className="p-3 bg-white rounded-full shadow-md text-slate-400 hover:text-indigo-500 transition-colors">
+          {/* ปุ่ม Dictionary */}
+          <button 
+            onClick={() => setView('DICTIONARY')} // สั่งเปลี่ยนหน้า
+            className="p-3 bg-white rounded-full shadow-md text-slate-400 hover:text-indigo-500 transition-colors"
+          >
             <BookOpen size={24} strokeWidth={2.5} />
           </button>
           {/* ปุ่ม User Profile */}
