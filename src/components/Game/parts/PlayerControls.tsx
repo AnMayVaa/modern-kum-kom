@@ -1,4 +1,6 @@
 // src/components/Game/parts/PlayerControls.tsx
+import { LETTER_SCORES } from '@/lib/constants'; 
+
 interface PlayerControlsProps {
   rack: string[];
   selectedIndex: number | null;
@@ -21,17 +23,34 @@ export const PlayerControls = ({ rack, selectedIndex, currentPlayer, playerRole,
       
       {/* ส่วนแสดงเบี้ยในมือ */}
       <div className="flex flex-nowrap justify-center gap-1 sm:gap-2 mb-8 px-2 overflow-visible">
-        {rack.map((tile, i) => (
-          // 💡 ลบ disabled={!isTurn} ออกเพื่อให้ผู้เล่นคลิกเลือกสลับที่เบี้ยได้แม้ในตาคู่แข่ง
-          <button 
-            key={i} 
-            onClick={() => onSelect(i)}
-            className={`w-12 h-12 sm:w-16 sm:h-16 bg-amber-50 border-b-4 border-amber-400 rounded-2xl flex items-center justify-center text-3xl font-black text-slate-800 shadow-lg transition-all
-              ${selectedIndex === i ? 'ring-4 ring-indigo-500 -translate-y-3 bg-indigo-50' : 'hover:-translate-y-1 active:scale-95'}`}
-          >
-            {tile === '0' ? ' ' : tile}
-          </button>
-        ))}
+        {rack.map((tile, i) => {
+          // เพิ่ม Logic หาคะแนน (โชว์หมดทั้ง 0 และเบี้ยคู่)
+          let score = 0;
+          if (tile.includes('/')) {
+            const firstChar = tile.split('/')[0];
+            score = LETTER_SCORES[firstChar] || 0;
+          } else {
+            score = LETTER_SCORES[tile] || 0;
+          }
+
+          return (
+            // 💡 ลบ disabled={!isTurn} ออกเพื่อให้ผู้เล่นคลิกเลือกสลับที่เบี้ยได้แม้ในตาคู่แข่ง
+            <button 
+              key={i} 
+              onClick={() => onSelect(i)}
+              // เพิ่ม class 'relative' เพื่อให้ตัวเลขมุมขวาล่างอิงกับปุ่มนี้
+              className={`relative w-12 h-12 sm:w-16 sm:h-16 bg-amber-50 border-b-4 border-amber-400 rounded-2xl flex items-center justify-center text-3xl font-black text-slate-800 shadow-lg transition-all
+                ${selectedIndex === i ? 'ring-4 ring-indigo-500 -translate-y-3 bg-indigo-50' : 'hover:-translate-y-1 active:scale-95'}`}
+            >
+              {tile === '0' ? ' ' : tile}
+
+              {/* เพิ่ม Span แสดงตัวเลขคะแนนที่มุมขวาล่าง */}
+              <span className="absolute bottom-1 right-1 text-[10px] sm:text-xs leading-none font-bold text-slate-500">
+                {score}
+              </span>
+            </button>
+          );
+        })}
       </div>
 
       {/* แถวปุ่มกดจัดการเบี้ย */}

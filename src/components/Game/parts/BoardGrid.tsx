@@ -1,4 +1,4 @@
-import { BOARD_LAYOUT } from '@/lib/constants';
+import { BOARD_LAYOUT, LETTER_SCORES } from '@/lib/constants';
 
 interface BoardGridProps {
   grid: (string | null)[][];
@@ -33,6 +33,10 @@ export const BoardGrid = ({ grid, blankTiles, currentPlayer, playerRole, mode, o
           {grid.map((row, r) => row.map((cell, c) => {
             const isMain = r % 2 !== 0;
             const isBlank = blankTiles.has(`${r},${c}`);
+
+            // 💡 หาคะแนนของตัวอักษรนั้นๆ (ถ้าเป็น Blank จะเป็น 0)
+            const score = cell && !isBlank ? LETTER_SCORES[cell] : null;
+
             return (
               <div key={`${r}-${c}`} onClick={() => onCellClick(r, c)}
                 // ปรับขนาดเบี้ยตามหน้าจอ (sm: md: lg:) เพื่อให้พอดีกับ Desktop และ iPad
@@ -40,9 +44,18 @@ export const BoardGrid = ({ grid, blankTiles, currentPlayer, playerRole, mode, o
                 ${isMain ? 'h-8 sm:h-10 md:h-12 text-xl sm:text-2xl font-black' : 'h-4 sm:h-5 md:h-6 text-[10px] sm:text-xs'}
                 ${cell ? (isBlank ? 'bg-cyan-100 text-blue-700 shadow-[inset_0_0_8px_cyan] z-10' : 'bg-[#ffebbb] text-slate-900 border-b-[3px] border-[#e6c275] shadow-sm z-10 rounded-[2px]') : 
                   isMain ? getCellColor(Math.floor(r/2), c) : 'bg-indigo-900/30 hover:bg-indigo-500/40'}`}>
+                    
+                {/* ตัวอักษรหลัก */}
                 <span className={isMain && !cell ? 'opacity-50 scale-75 transform' : ''}>
                   {cell || (isMain ? (BOARD_LAYOUT[Math.floor(r/2)]?.[c] === 'STAR' ? '★' : BOARD_LAYOUT[Math.floor(r/2)]?.[c]) : '')}
                 </span>
+
+                {/* 💡 เพิ่มตัวเลขคะแนนมุมขวาล่าง (เฉพาะช่องที่มีเบี้ยและไม่ใช่เบี้ยว่าง) */}
+                {score !== null && score !== undefined && (
+                  <span className="absolute bottom-[2px] right-[2px] text-[8px] sm:text-[10px] leading-none font-bold opacity-60">
+                    {score}
+                  </span>
+                )}
               </div>
             );
           }))}
