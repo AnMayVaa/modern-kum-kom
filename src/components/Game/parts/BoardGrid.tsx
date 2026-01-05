@@ -25,7 +25,7 @@ export const BoardGrid = ({ grid, blankTiles, currentPlayer, playerRole, mode, o
 
   return (
     <div className={`w-full max-w-full overflow-x-auto pb-4 custom-scrollbar transition-all duration-500
-      ${(mode === 'MULTI' && Number(currentPlayer) !== Number(playerRole)) ? 'opacity-60 pointer-events-none grayscale-[0.5]' : 'opacity-100'}`}>
+      ${(mode === 'MULTI' && Number(currentPlayer) !== Number(playerRole)) ? 'opacity-60 grayscale-[0.5]' : 'opacity-100'}`}>
       
       {/* กำหนด min-w เพื่อให้กระดานคงรูปทรง 15 คอลัมน์ไว้ ไม่ให้ซ้อนกัน */}
       <div className="min-w-[550px] sm:min-w-[700px] md:min-w-full bg-slate-800 p-1 rounded-2xl shadow-2xl border-4 border-slate-700 mx-auto">
@@ -40,7 +40,7 @@ export const BoardGrid = ({ grid, blankTiles, currentPlayer, playerRole, mode, o
             return (
               <div key={`${r}-${c}`} onClick={() => onCellClick(r, c)}
                 // ปรับขนาดเบี้ยตามหน้าจอ (sm: md: lg:) เพื่อให้พอดีกับ Desktop และ iPad
-                className={`flex items-center justify-center cursor-pointer transition-all relative leading-none
+                className={`flex items-center justify-center transition-all relative leading-none
                 ${isMain ? 'h-8 sm:h-10 md:h-12 text-xl sm:text-2xl font-black' : 'h-4 sm:h-5 md:h-6 text-[10px] sm:text-xs'}
                 ${cell ? (isBlank ? 'bg-cyan-100 text-blue-700 shadow-[inset_0_0_8px_cyan] z-10' : 'bg-[#ffebbb] text-slate-900 border-b-[3px] border-[#e6c275] shadow-sm z-10 rounded-[2px]') : 
                   isMain ? getCellColor(Math.floor(r/2), c) : 'bg-indigo-900/30 hover:bg-indigo-500/40'}`}>
