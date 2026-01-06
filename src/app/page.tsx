@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react';
 import Board from '@/components/Game/Board';
 import Pusher from 'pusher-js';
-import { signIn, useSession } from 'next-auth/react';
+import { signIn, signOut, useSession } from 'next-auth/react';
 import { User, BookOpen } from 'lucide-react';
 
 import { UserProfile } from '@/components/UserProfile/UserProfile';
@@ -317,9 +317,41 @@ export default function Home() {
         <div className="flex flex-col items-center">
           <h1 className="text-7xl font-black text-indigo-600 mb-12 italic">KUM-KOM</h1>
           <div className="flex flex-col gap-4 w-full max-w-xs">
-            <button onClick={() => { setRoomData({ id: 'SOLO', role: 1, starter: 1 }); setView('GAME'); }} className="py-5 bg-white border-2 border-b-8 border-emerald-500 rounded-3xl font-black text-xl text-emerald-600 shadow-xl hover:-translate-y-1 transition-all">🤖 PLAY VS BOT</button>
-            <button onClick={() => setView('MULTI_LOBBY')} className="py-5 bg-white border-2 border-b-8 border-indigo-600 rounded-3xl font-black text-xl text-indigo-600 shadow-xl hover:-translate-y-1 transition-all">👥 MULTIPLAYER</button>
-            <button onClick={() => { localStorage.removeItem('kumkom_name'); setView('IDENTITY'); }} className="mt-6 text-[10px] font-bold text-slate-300 hover:text-indigo-500 uppercase tracking-widest">Change Name ({playerName})</button>
+            <button 
+              onClick={() => { 
+                setRoomData({ id: 'SOLO', role: 1, starter: 1 }); 
+                setView('GAME'); 
+              }} 
+              className="py-5 bg-white border-2 border-b-8 border-emerald-500 rounded-3xl font-black text-xl text-emerald-600 shadow-xl hover:-translate-y-1 transition-all"
+            >
+              🤖 PLAY VS BOT
+            </button>
+
+            <button 
+              onClick={() => setView('MULTI_LOBBY')} 
+              className="py-5 bg-white border-2 border-b-8 border-indigo-600 rounded-3xl font-black text-xl text-indigo-600 shadow-xl hover:-translate-y-1 transition-all"
+            >
+              👥 MULTIPLAYER
+            </button>
+
+            <button 
+              onClick={() => { 
+                // 1. ลบชื่อ Guest ออกจากเครื่อง
+                localStorage.removeItem('kumkom_name'); 
+                
+                // 2. เช็คว่าถ้า Login ด้วย Google อยู่ ให้ Sign Out ด้วย
+                if (session) {
+                  signOut({ redirect: false }); 
+                }
+                
+                // 3. เคลียร์ชื่อในตัวแปรและกลับไปหน้ากรอกชื่อ
+                setPlayerName(''); 
+                setView('IDENTITY'); 
+              }} 
+              className="mt-6 text-[10px] font-bold text-slate-300 hover:text-indigo-500 uppercase tracking-widest"
+            >
+              Change Name ({playerName})
+            </button>
           </div>
         </div>
       )}
