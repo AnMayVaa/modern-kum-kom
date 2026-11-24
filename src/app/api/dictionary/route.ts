@@ -1,36 +1,19 @@
 import { NextResponse } from 'next/server';
-import { MongoClient } from 'mongodb';
+import { loadWords } from '@/lib/server/words';
+import { normalizeThai } from '@/lib/game/thai';
 
-// ⚠️ เช็ค Connection String ใน .env.local ให้ถูกต้อง
-const uri = process.env.MONGODB_URI!;
-const client = new MongoClient(uri);
-
+// Word search: words starting with q first, then words containing it (max 50).
 export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url);
-  const query = searchParams.get('q');
-
-  if (!query) {
-    return NextResponse.json({ words: [] });
-  }
-
+  const q = normalizeThai((new URL(request.url).searchParams.get('q') ?? '').trim()).slice(0, 40);
+  if (!q) return NextResponse.json({ words: [] });
   try {
-    await client.connect();
-    const database = client.db('kumkom_db'); // ⚠️ ตรวจสอบชื่อ Database ของคุณ
-    const collection = database.collection('vocabulary'); // ⚠️ ตรวจสอบชื่อ Collection คำศัพท์ของคุณ
-
-    // ค้นหาคำที่ "ขึ้นต้นด้วย" query (Case insensitive)
-    // และจำกัดผลลัพธ์แค่ 50 คำเพื่อไม่ให้โหลดหนักเกินไป
-    const words = await collection
-      .find({ word: { $regex: `^${query}`, $options: 'i' } }) 
-      .limit(50)
-      .toArray();
-
+    const all = await loadWords();
+    const starts = all.filter((w) => w.startsWith(q));
+    const contains = starts.length < 50 ? all.filter((w) => !w.startsWith(q) && w.includes(q)) : [];
+    const words = [...starts, ...contains].slice(0, 50).map((word) => ({ word }));
     return NextResponse.json({ words });
   } catch (error) {
-    console.error("Dictionary Error:", error);
-    return NextResponse.json({ error: "Failed to fetch words" }, { status: 500 });
-  } finally {
-    // ใน Next.js Serverless อาจจะไม่ต้อง close client บ่อยๆ แต่ใส่ไว้เพื่อความปลอดภัยในบาง env
-    // await client.close(); 
+    console.error('Dictionary search failed', error);
+    return NextResponse.json({ error: 'ค้นหาคำไม่สำเร็จ' }, { status: 503 });
   }
 }

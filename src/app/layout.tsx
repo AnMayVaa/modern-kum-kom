@@ -1,31 +1,38 @@
-import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
-import "./globals.css";
-
-import { NextAuthProvider } from "@/components/Providers/NextAuthProvider";
-
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
+import type { Metadata, Viewport } from 'next';
+import '@fontsource/anuphan/400.css';
+import '@fontsource/anuphan/500.css';
+import '@fontsource/anuphan/600.css';
+import '@fontsource/trirong/500.css';
+import '@fontsource/trirong/600.css';
+import '@fontsource/trirong/700.css';
+import './globals.css';
+import { NextAuthProvider } from '@/components/Providers/NextAuthProvider';
+import { ToastProvider } from '@/components/ui/Toast';
 
 export const metadata: Metadata = {
-  title: "Modern Kum-Kom | เกมต่ออักษรไทย",
-  description: "โปรเจกต์วิชา Software Development - ระบบเกมคำคมยุคใหม่พร้อมคลังคำศัพท์ออนไลน์",
+  title: 'คำคม | เกมต่ออักษรไทยออนไลน์',
+  description: 'เล่นคำคม (Kum-Kom) เกมต่อคำภาษาไทยบนกระดาน 15×15 กับบอทหรือกับเพื่อนแบบออนไลน์',
+  applicationName: 'คำคม',
+  openGraph: {
+    title: 'คำคม — เกมต่ออักษรไทย',
+    description: 'ต่อคำภาษาไทยบนกระดาน แข่งกับบอทสามระดับ หรือชวนเพื่อนมาเล่นออนไลน์',
+    locale: 'th_TH',
+    type: 'website',
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: '#1c2849',
+  width: 'device-width',
+  initialScale: 1,
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
-      {/* 💡 เพิ่ม className เพื่อให้ Font ทำงานได้ครับ */}
-      <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
+    <html lang="th">
+      <body className="antialiased">
         <NextAuthProvider>
-            {children}
+          <ToastProvider>{children}</ToastProvider>
         </NextAuthProvider>
       </body>
     </html>
