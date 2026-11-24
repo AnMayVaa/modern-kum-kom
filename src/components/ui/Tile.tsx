@@ -8,7 +8,7 @@ export function RackTileFace({ tile }: { tile: string }) {
       {isBlankTile(tile) ? (
         <span className="text-[0.4em] font-medium text-kram-500">ว่าง</span>
       ) : options.length > 1 ? (
-        <span className="flex items-baseline text-[0.78em] tracking-tight">
+        <span className="-ml-[0.12em] flex -translate-y-[0.06em] items-baseline text-[0.64em] tracking-tight">
           {options[0]}
           <span className="mx-[0.04em] text-[0.6em] text-kram-500">/</span>
           {options[1]}
