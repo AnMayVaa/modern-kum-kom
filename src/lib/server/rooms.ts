@@ -90,9 +90,18 @@ const mongoStore = (rooms: Collection<Room>): Store => {
   };
 };
 
+let warned = false;
 async function store(): Promise<Store> {
-  const db = await getDb();
-  return db ? mongoStore(db.collection<Room>('rooms')) : memoryStore();
+  try {
+    const db = await getDb();
+    if (db) return mongoStore(db.collection<Room>('rooms'));
+  } catch (error) {
+    // Keep online play going without the database. Rooms then only live as long as this
+    // server instance, which is enough for players who are matched within a few seconds.
+    if (!warned) console.warn('MongoDB unavailable, keeping rooms in memory:', (error as Error).message);
+    warned = true;
+  }
+  return memoryStore();
 }
 
 export async function createRoom(kind: RoomKind, hostName: string): Promise<Room> {

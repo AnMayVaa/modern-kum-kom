@@ -7,18 +7,25 @@ const TTL_MS = 6 * 60 * 60 * 1000;
 let cache: { words: string[]; set: Set<string>; at: number } | null = null;
 let pending: Promise<string[]> | null = null;
 
+// The list made by scripts/extract_word.py, used when there is no database (local development).
+const readLocalList = async () =>
+  JSON.parse(await readFile(path.join(process.cwd(), 'src', 'lib', 'word_list.json'), 'utf8')) as string[];
+
 async function fetchWords(): Promise<string[]> {
-  const db = await getDb();
-  if (db) {
-    const docs = await db
-      .collection<{ word: string }>('vocabulary')
-      .find({}, { projection: { _id: 0, word: 1 } })
-      .toArray();
-    return docs.map((d) => d.word);
+  let db;
+  try {
+    db = await getDb();
+  } catch (error) {
+    return readLocalList().catch(() => {
+      throw error;
+    });
   }
-  // Local development without MongoDB: use the list made by scripts/extract_word.py.
-  const file = path.join(process.cwd(), 'src', 'lib', 'word_list.json');
-  return JSON.parse(await readFile(file, 'utf8')) as string[];
+  if (!db) return readLocalList();
+  const docs = await db
+    .collection<{ word: string }>('vocabulary')
+    .find({}, { projection: { _id: 0, word: 1 } })
+    .toArray();
+  return docs.map((d) => d.word);
 }
 
 /** Every dictionary word in normal form, cached in memory for a few hours. */
