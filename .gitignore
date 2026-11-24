@@ -32,7 +32,6 @@ yarn-error.log*
 *.mdb
 *.accdb
 /scripts/word.mdb
-/src/lib/word_list.json
 
 # Python cache
 __pycache__/

@@ -15,13 +15,14 @@ Live: https://modern-kum-kom.vercel.app
 - **Online play** with quick matching or a private room code, a share link (`/?room=123456`), a ready check, and the win going to the remaining player if someone leaves.
 - **Solo games are saved** on the device, so you can close the tab and continue later.
 - **Stats** per device: games, wins, high score, best move, recent games.
-- **Dictionary search** that runs instantly in the browser.
+- **Dictionary search** over all 25,551 words, instantly in the browser.
 - Mobile-first layout with a zoom toggle for the board; keyboard focus and reduced motion are respected.
 
 ## Tech stack
 
 - **Next.js 16** (App Router) + **React 19** + **TypeScript**, **Tailwind CSS 4**
-- **MongoDB**: the dictionary (`kumkom_db.vocabulary`) and online rooms (`kumkom_db.rooms`, cleaned up automatically by a TTL index)
+- **Dictionary**: 25,551 words from the original game's `word.mdb`, shipped with the app in `src/data/words.json`
+- **MongoDB** (optional): online rooms (`kumkom_db.rooms`, cleaned up automatically by a TTL index)
 - **Pusher** for real-time moves
 - **NextAuth** for optional Google or Facebook sign-in
 - **Vitest** for the game engine tests
@@ -37,20 +38,22 @@ npm run dev                  # http://localhost:3000
 
 Everything in `.env.local` is optional for local development:
 
-- Without `MONGODB_URI`, the word list is read from `src/lib/word_list.json` (see below) and rooms are kept in memory.
+- Without `MONGODB_URI` (or if the database is down), online rooms are kept in server memory. That works locally, but on Vercel two players can reach different servers, so set up a database for reliable matchmaking.
 - Without the Pusher keys, solo play works and online play shows that it isn't set up.
 - Sign-in buttons only appear for providers whose ID and secret are set.
 
 Other scripts: `npm test` (engine tests), `npm run lint`, `npm run typecheck`, `npm run build`. GitHub Actions runs all four on every push and pull request.
 
-### Loading the dictionary
+### Updating the dictionary
 
-The scripts in `scripts/` build the word list:
+The word list lives in `src/data/words.json` and ships with the app, so word checks never depend on a database. To rebuild it from the original game's Access file:
 
-1. `extract_word.py` exports the words from the `word.mdb` Access database to `src/lib/word_list.json`. It needs `pyodbc` and the Microsoft Access driver.
-2. `upload_to_mongo.py` uploads the list to MongoDB, reading `MONGODB_URI` from `.env.local`.
+```bash
+pip install access-parser
+python scripts/extract_word.py path/to/word.mdb
+```
 
-The browser downloads the whole list once from `/api/words`, and that response is cached for a day. After changing the dictionary, redeploy or wait for the cache to expire.
+The script splits the few entries that hold two words or a bracketed variant, drops stray digits and commas, and removes duplicates. The browser downloads the list once from `/api/words`, and that response is cached for a day, so redeploy after changing it.
 
 ## How it works
 
@@ -62,10 +65,11 @@ src/
 │       ├── words/          # the full word list (cached)
 │       ├── check-word/     # server word check, used only if the list can't be downloaded
 │       ├── dictionary/     # server word search fallback
-│       ├── rooms/          # create, join and quick-match rooms (MongoDB)
+│       ├── rooms/          # create, join and quick-match rooms (MongoDB, or memory)
 │       ├── multiplayer/    # relays game events to the room through Pusher
 │       └── auth/           # NextAuth
 ├── components/             # game screen, board, rack, dialogs, other screens
+├── data/words.json         # the dictionary
 ├── hooks/
 │   ├── useGame.ts          # game controller: placing tiles, submitting, bot turns, online sync
 │   └── useDictionary.ts

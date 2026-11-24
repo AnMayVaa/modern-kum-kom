@@ -1,53 +1,46 @@
-import pyodbc
+"""Export the Kum-Kom dictionary from word.mdb to src/data/words.json.
+
+    pip install access-parser
+    python scripts/extract_word.py path/to/word.mdb
+
+access-parser reads the Access file directly, so no Microsoft Access driver is needed.
+A few entries in word.mdb hold two words, a bracketed variant or a stray digit or comma;
+those are split and cleaned. Duplicates are removed and the list is sorted.
+"""
+
 import json
 import os
+import re
+import sys
+import unicodedata
 
-def extract_mdb():
-    # กำหนด Path ให้ถูกต้อง
-    base_path = os.path.dirname(os.path.abspath(__file__))
-    mdb_path = os.path.join(base_path, 'word.mdb')
-    output_path = os.path.join(base_path, '..', 'src', 'lib', 'word_list.json')
+from access_parser import AccessParser
 
-    # เชื่อมต่อกับไฟล์ word.mdb
-    conn_str = f'DRIVER={{Microsoft Access Driver (*.mdb, *.accdb)}};DBQ={mdb_path};'
-    
-    try:
-        conn = pyodbc.connect(conn_str)
-        # ตั้งค่าการถอดรหัสภาษาไทยสำหรับ Microsoft Access
-        conn.setdecoding(pyodbc.SQL_CHAR, encoding='cp874')
-        conn.setdecoding(pyodbc.SQL_WCHAR, encoding='utf-16le')
-        
-        cursor = conn.cursor()
-        
-        # ดึงข้อมูลจากตาราง Dictionary คอลัมน์ wordID
-        print("กำลังดึงข้อมูลจากตาราง Dictionary...")
-        cursor.execute("SELECT wordID FROM Dictionary") 
-        
-        # ดึงข้อมูลทั้งหมดและตัดช่องว่างออก
-        words = []
-        for row in cursor.fetchall():
-            if row[0]:
-                word = str(row[0]).strip()
-                if word:
-                    words.append(word)
-        
-        # บันทึกไฟล์ JSON
-        os.makedirs(os.path.dirname(output_path), exist_ok=True)
-        with open(output_path, 'w', encoding='utf-8') as f:
-            json.dump(words, f, ensure_ascii=False, indent=2)
-        
-        print("-" * 30)
-        print(f"✅ สกัดข้อมูลสำเร็จทั้งหมด {len(words)} คำ")
-        
-        # ตรวจสอบกับจำนวนในรูปภาพ
-        if len(words) == 25924:
-            print("✨ ยอดเยี่ยม! จำนวนคำตรงตามใน Access เป๊ะ (25,924 คำ)")
-        else:
-            print(f"⚠️ จำนวนคำ ({len(words)}) ยังไม่ตรงกับ 25,924 คำ โปรดเช็กข้อมูลอีกครั้ง")
-        print("-" * 30)
+HERE = os.path.dirname(os.path.abspath(__file__))
+SOURCE = sys.argv[1] if len(sys.argv) > 1 else os.path.join(HERE, 'word.mdb')
+OUTPUT = os.path.join(HERE, '..', 'src', 'data', 'words.json')
 
-    except Exception as e:
-        print(f"❌ เกิดข้อผิดพลาด: {e}")
 
-if __name__ == "__main__":
-    extract_mdb()
+def clean(raw_words):
+    out = set()
+    for word in raw_words:
+        if not isinstance(word, str):
+            continue
+        for token in re.split(r'[\s,()]+', unicodedata.normalize('NFC', word)):
+            token = re.sub(r'[0-9]+', '', token).strip()
+            if token and all('ก' <= ch <= '๎' for ch in token):
+                out.add(token)
+    return sorted(out)
+
+
+def main():
+    raw = AccessParser(SOURCE).parse_table('Dictionary')['wordID']
+    words = clean(raw)
+    os.makedirs(os.path.dirname(OUTPUT), exist_ok=True)
+    with open(OUTPUT, 'w', encoding='utf-8') as f:
+        f.write('[\n' + ',\n'.join(json.dumps(w, ensure_ascii=False) for w in words) + '\n]\n')
+    print(f'{len(raw)} entries in word.mdb -> {len(words)} words in {os.path.relpath(OUTPUT)}')
+
+
+if __name__ == '__main__':
+    main()
