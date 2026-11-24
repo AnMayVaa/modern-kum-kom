@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { Sheet } from '@/components/ui/Sheet';
+import { RulesContent } from '@/components/RulesContent';
 import { RackTileFace } from '@/components/ui/Tile';
 import { BLANK_CHOICES, LOWER_VOWELS, TOP_MARKS, UPPER_VOWELS } from '@/lib/game/constants';
 import { clusterText, isLowerContent } from '@/lib/game/thai';
@@ -163,35 +164,7 @@ export function BagSheet({ open, onClose, game, me }: { open: boolean; onClose: 
 export function RulesSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
   return (
     <Sheet open={open} title="วิธีเล่นคำคม" onClose={onClose}>
-      <div className="flex flex-col gap-4 text-[15px] leading-relaxed text-kram-900">
-        <Rule title="เป้าหมาย">ต่อคำภาษาไทยบนกระดานให้ได้แต้มมากกว่าคู่แข่ง ทุกคำต้องมีในพจนานุกรม</Rule>
-        <Rule title="ลงคำ">
-          แตะเบี้ยในมือ แล้วแตะช่องบนกระดาน เบี้ยทุกตัวในตาเดียวต้องเรียงอยู่ในแถวหรือคอลัมน์เดียวกันโดยไม่เว้นช่อง และต้องต่อกับคำที่มีอยู่แล้ว
-          ตาแรกต้องวางผ่านช่องดาว ★ แตะเบี้ยที่เพิ่งวางเพื่อเก็บคืน
-        </Rule>
-        <Rule title="สระและวรรณยุกต์">
-          ช่องบาง ๆ เหนือและใต้แต่ละช่องมีไว้ใส่สระบน สระล่าง และวรรณยุกต์ ใช้ได้ไม่จำกัดและไม่มีแต้ม แตะช่องเหนือหรือใต้ตัวอักษรเพื่อใส่
-        </Rule>
-        <Rule title="ช่องพิเศษ">
-          2L 3L 4L คูณแต้มตัวอักษร 2W 3W และดาวคูณแต้มทั้งคำ ใช้ได้เฉพาะตาที่วางเบี้ยทับช่องนั้น ลงเบี้ย 6, 7, 8 หรือ 9 ตัวในตาเดียวได้โบนัส 40, 50, 70 หรือ 90 แต้ม
-        </Rule>
-        <Rule title="เบี้ยพิเศษ">
-          เบี้ยว่างใช้แทนตัวอักษรใดก็ได้แต่ได้ 0 แต้ม เบี้ยคู่ เช่น ฆ/ซ เลือกได้ว่าจะใช้เป็นตัวไหน วางทับเบี้ยเดิมบนกระดานได้ตาละ 1 ตัว
-        </Rule>
-        <Rule title="จบเกม">
-          เมื่อถุงหมดและมีคนลงเบี้ยหมดมือ คนนั้นได้แต้มเบี้ยที่เหลือในมือคู่แข่ง ×2 ถ้าข้ามหรือแลกเบี้ยติดกัน 6 ตา กระดานจะเริ่มใหม่ที่ดาว
-          หรือถ้าถุงหมดแล้ว เกมจะจบและหักแต้มเบี้ยที่ค้างในมือ
-        </Rule>
-      </div>
+      <RulesContent />
     </Sheet>
-  );
-}
-
-function Rule({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <section>
-      <h3 className="mb-0.5 font-semibold text-kram-900">{title}</h3>
-      <p className="text-kram-700">{children}</p>
-    </section>
   );
 }

@@ -5,6 +5,7 @@ import Image from 'next/image';
 import { getProviders, signIn } from 'next-auth/react';
 import { primaryBtn, RulesSheet, secondaryBtn } from '@/components/game/Sheets';
 import { Shell } from '@/components/screens/Lobby';
+import { SiteCredit } from '@/components/SiteCredit';
 import { Wordmark } from '@/components/ui/Tile';
 import { useDictionary } from '@/hooks/useDictionary';
 import { BOT_LEVELS, BotLevel } from '@/lib/game/bot';
@@ -26,7 +27,8 @@ export function IdentityScreen({ initialName, onDone }: { initialName: string; o
   return (
     <main className="flex min-h-dvh flex-col items-center justify-center px-5 py-10">
       <Wordmark size={72} />
-      <p className="mt-5 max-w-xs text-center text-[15px] leading-relaxed text-kram-700">เกมต่อคำภาษาไทยบนกระดาน เล่นกับบอทหรือชวนเพื่อนมาเล่นออนไลน์</p>
+      <h1 className="mt-6 text-center font-display text-2xl font-bold text-kram-950">คำคม เกมต่อคำภาษาไทยออนไลน์</h1>
+      <p className="mt-2 max-w-xs text-center text-[15px] leading-relaxed text-kram-700">เล่นกับบอทหรือชวนเพื่อนมาเล่นออนไลน์ ฟรีบนเว็บ</p>
       <form
         className="mt-8 flex w-full max-w-xs flex-col gap-3"
         onSubmit={(e) => {
@@ -55,6 +57,7 @@ export function IdentityScreen({ initialName, onDone }: { initialName: string; o
           </button>
         )}
       </form>
+      <SiteCredit className="mt-12" />
     </main>
   );
 }
@@ -87,6 +90,7 @@ export function MenuScreen({
   const [rules, setRules] = useState(false);
   return (
     <main className="flex min-h-dvh flex-col items-center px-5 py-10 sm:justify-center">
+      <h1 className="sr-only">คำคม เกมต่อคำภาษาไทยออนไลน์</h1>
       <Wordmark size={76} />
       <p className="mt-6 text-kram-700">
         สวัสดี <span className="font-semibold text-kram-950">{name}</span>{' '}
@@ -139,6 +143,7 @@ export function MenuScreen({
           </button>
         </div>
       </div>
+      <SiteCredit className="mt-10" />
       <RulesSheet open={rules} onClose={() => setRules(false)} />
     </main>
   );

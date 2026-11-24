@@ -2,7 +2,9 @@
 
 A web version of **Kum-Kom (คำคม)**, the Thai crossword board game, which works like Scrabble for the Thai language. Play solo against a bot with three difficulty levels, or online against a friend.
 
-Live: https://modern-kum-kom.vercel.app
+Live: https://modern-kum-kom.vercel.app · How to play: https://modern-kum-kom.vercel.app/about
+
+Made by **พิทักษ์ ปทุมวัน (Pitak "Ohm" Patumwan)**, Computer Engineering, King Mongkut's University of Technology North Bangkok (KMUTNB) · GitHub [@AnMayVaa](https://github.com/AnMayVaa)
 
 ## Features
 
@@ -17,6 +19,7 @@ Live: https://modern-kum-kom.vercel.app
 - **Stats** per device: games, wins, high score, best move, recent games.
 - **Dictionary search** over all 25,551 words, instantly in the browser.
 - Mobile-first layout with a zoom toggle for the board; keyboard focus and reduced motion are respected.
+- **Easy to find:** server-rendered landing content, an about page with the full rules and FAQ, sitemap, robots.txt that welcomes search engines and AI crawlers, `llms.txt` for AI assistants, schema.org data (game, author, FAQ), and Open Graph / Twitter preview images.
 
 ## Tech stack
 
@@ -88,6 +91,12 @@ src/
 ```
 
 The board is a 31×15 grid: odd rows are the 15 letter rows, and the even rows between them hold the free vowels and tone marks of the letter above or below. Every move goes through `evaluateMove` in `src/lib/game/rules.ts`, so the live preview, the submit check, the hint and the bot all follow exactly the same rules. Each game action is a pure function from one game state to the next. Online, the player who moves sends the new state to the room, and each side keeps whichever version is newer.
+
+### Site details and SEO
+
+- Site identity, keywords and author credits live in `src/lib/site.ts`. Set `NEXT_PUBLIC_SITE_URL` if the site moves to another domain.
+- Set `NEXT_PUBLIC_CONTACT_EMAIL` in Vercel to show a contact address on the about page, in `llms.txt` and in the structured data (redeploy after changing it).
+- `/robots.txt`, `/sitemap.xml`, `/llms.txt`, `/manifest.webmanifest` and the preview images are generated from `src/app`. To get indexed faster, add the site in Google Search Console and submit `/sitemap.xml`.
 
 ### Running online play locally
 

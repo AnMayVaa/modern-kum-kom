@@ -5,6 +5,8 @@ import { signOut, useSession } from 'next-auth/react';
 import { GameScreen, GameSetup } from '@/components/game/GameScreen';
 import { Lobby, OnlineStart } from '@/components/screens/Lobby';
 import { DictionaryScreen, IdentityScreen, MenuScreen, ProfileScreen } from '@/components/screens/Screens';
+import { SiteCredit } from '@/components/SiteCredit';
+import { Wordmark } from '@/components/ui/Tile';
 import type { BotLevel } from '@/lib/game/bot';
 import { newGame } from '@/lib/game/state';
 import { loadDictionary } from '@/lib/client/dictionary';
@@ -79,7 +81,20 @@ export default function Home() {
 
   switch (screen.name) {
     case 'boot':
-      return <main className="min-h-dvh" />;
+      // This is also what the server renders, so search engines and AI crawlers see real content.
+      return (
+        <main className="flex min-h-dvh flex-col items-center px-5 py-10 sm:justify-center">
+          <Wordmark size={76} />
+          <h1 className="mt-6 text-center font-display text-2xl font-bold text-kram-950">คำคม เกมต่อคำภาษาไทยออนไลน์</h1>
+          <p className="mt-2 max-w-sm text-center text-[15px] leading-relaxed text-kram-700">
+            เล่นฟรีบนเว็บ แข่งกับบอทสามระดับ หรือชวนเพื่อนมาเล่นออนไลน์ ตรวจคำจากพจนานุกรม 25,551 คำ
+          </p>
+          <p className="mt-8 text-sm text-kram-500" role="status">
+            กำลังโหลด…
+          </p>
+          <SiteCredit className="mt-10" />
+        </main>
+      );
     case 'identity':
       return (
         <IdentityScreen
