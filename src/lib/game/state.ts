@@ -2,18 +2,36 @@
 // function: (state, input) -> new state, so solo play, online play and the tests all
 // run exactly the same rules.
 
-import { RACK_SIZE, STALEMATE_LIMIT } from './constants';
+import { MIN_BAG_TO_EXCHANGE, RACK_SIZE, STALEMATE_LIMIT } from './constants';
 import { cellKey, createGrid, fromSparse, Grid, isMainRow, SparseGrid, toSparse } from './board';
-import { evaluateMove, MoveEvaluation, Placement, WordCheck } from './rules';
-import { createBag, rackValue, removeTiles, Rng, shuffle } from './tiles';
+import { evaluateMove, keepOnlyWords, MoveEvaluation, Placement, WordCheck } from './rules';
+import { createBag, rackValue, removeTiles, Rng, shuffle, startRank } from './tiles';
 
 export type PlayerId = 1 | 2;
 export const otherPlayer = (p: PlayerId): PlayerId => (p === 1 ? 2 : 1);
 
+export type TimerSetting = { kind: 'off' } | { kind: 'turn'; seconds: number } | { kind: 'game'; minutes: number };
+
+export interface GameSettings {
+  timer: TimerSetting;
+  /** Hints per player: null for unlimited, 0 for none. */
+  hints: number | null;
+  /**
+   * Tournament word check: the board doesn't say whether a word is real before you play it,
+   * and playing a word that isn't in the dictionary loses the turn (official challenge rule).
+   */
+  strict: boolean;
+}
+
+export const DEFAULT_SETTINGS: GameSettings = { timer: { kind: 'off' }, hints: null, strict: false };
+
+/** Official optional time rule: 10 points off for every started minute over the game clock. */
+export const OVERTIME_PENALTY_PER_MINUTE = 10;
+
 export interface MoveRecord {
   n: number;
   player: PlayerId;
-  kind: 'play' | 'exchange' | 'pass' | 'reset' | 'finish';
+  kind: 'play' | 'exchange' | 'pass' | 'invalid' | 'reset' | 'finish';
   words?: { text: string; score: number }[];
   tiles?: number;
   bingo?: number;
@@ -46,6 +64,12 @@ export interface GameState {
   status: 'playing' | 'over';
   result: GameResult | null;
   startedAt: number;
+  /** The tile each player drew to decide who starts. */
+  opening?: Record<PlayerId, string>;
+  settings: GameSettings;
+  /** Thinking time used so far, in milliseconds. */
+  clock: Record<PlayerId, number>;
+  hintsUsed: Record<PlayerId, number>;
 }
 
 export type ActionResult =
@@ -56,14 +80,32 @@ const HISTORY_LIMIT = 120;
 
 const randomId = (rng: Rng) => Math.floor(rng() * 36 ** 8).toString(36).padStart(8, '0');
 
-export function newGame({ starter = 1, rng = Math.random }: { starter?: PlayerId; rng?: Rng } = {}): GameState {
-  const bag = createBag(rng);
+/**
+ * Starts a game. Unless a starter is given, each player draws a tile and the better one
+ * (blank, then ก to ฮ, vowels last) goes first; the tiles go back into the bag and the
+ * starter takes their nine tiles first.
+ */
+export function newGame({
+  starter,
+  rng = Math.random,
+  settings = DEFAULT_SETTINGS,
+}: { starter?: PlayerId; rng?: Rng; settings?: GameSettings } = {}): GameState {
+  let bag = createBag(rng);
+  let opening: Record<PlayerId, string> | undefined;
+  if (!starter) {
+    while (startRank(bag[0]) === startRank(bag[1])) bag = shuffle(bag, rng);
+    opening = { 1: bag[0], 2: bag[1] };
+    starter = startRank(bag[0]) < startRank(bag[1]) ? 1 : 2;
+    bag = shuffle(bag, rng);
+  }
+  const first = bag.splice(0, RACK_SIZE);
+  const second = bag.splice(0, RACK_SIZE);
   return {
     id: randomId(rng),
     version: 1,
     grid: createGrid(),
     blanks: [],
-    racks: { 1: bag.splice(0, RACK_SIZE), 2: bag.splice(0, RACK_SIZE) },
+    racks: (starter === 1 ? { 1: first, 2: second } : { 1: second, 2: first }) as Record<PlayerId, string[]>,
     bag,
     scores: { 1: 0, 2: 0 },
     current: starter,
@@ -73,7 +115,42 @@ export function newGame({ starter = 1, rng = Math.random }: { starter?: PlayerId
     status: 'playing',
     result: null,
     startedAt: Date.now(),
+    opening,
+    settings,
+    clock: { 1: 0, 2: 0 },
+    hintsUsed: { 1: 0, 2: 0 },
   };
+}
+
+/** Adds a player's thinking time for the turn they are finishing. */
+export const addTime = (state: GameState, player: PlayerId, ms: number): GameState =>
+  ms > 0 ? { ...state, clock: { ...state.clock, [player]: state.clock[player] + ms } as Record<PlayerId, number> } : state;
+
+export const hintsLeft = (state: GameState, player: PlayerId): number | null =>
+  state.settings.hints === null ? null : Math.max(0, state.settings.hints - state.hintsUsed[player]);
+
+export const spendHint = (state: GameState, player: PlayerId): GameState => ({
+  ...state,
+  hintsUsed: { ...state.hintsUsed, [player]: state.hintsUsed[player] + 1 } as Record<PlayerId, number>,
+});
+
+/** Points lost for going over the game clock. */
+export function timePenalty(state: GameState, player: PlayerId): number {
+  const { timer } = state.settings;
+  if (timer.kind !== 'game') return 0;
+  const over = state.clock[player] - timer.minutes * 60_000;
+  return over > 0 ? Math.ceil(over / 60_000) * OVERTIME_PENALTY_PER_MINUTE : 0;
+}
+
+/** Final scores and adjustments with any overtime penalty taken off. */
+function finalTally(state: GameState, scores: Record<PlayerId, number>, adjustments: Record<PlayerId, number>) {
+  const out = { scores: { ...scores }, adjustments: { ...adjustments } };
+  for (const p of [1, 2] as PlayerId[]) {
+    const penalty = timePenalty(state, p);
+    out.scores[p] -= penalty;
+    out.adjustments[p] -= penalty;
+  }
+  return out;
 }
 
 const winnerOf = (scores: Record<PlayerId, number>): PlayerId | 0 =>
@@ -119,11 +196,13 @@ export function applyPlay(state: GameState, player: PlayerId, placements: Placem
     score: evaluation.total,
   };
 
+  // Only the words made this turn stay on the board.
+  const kept = keepOnlyWords(evaluation.grid, evaluation.blanks, evaluation.words);
   let next: GameState = {
     ...state,
     version: state.version + 1,
-    grid: evaluation.grid,
-    blanks: [...evaluation.blanks],
+    grid: kept.grid,
+    blanks: [...kept.blanks],
     bag,
     racks: { ...state.racks, [player]: rack } as Record<PlayerId, string[]>,
     scores,
@@ -138,12 +217,16 @@ export function applyPlay(state: GameState, player: PlayerId, placements: Placem
   if (bag.length === 0 && rack.length === 0) {
     const opponent = otherPlayer(player);
     const bonus = rackValue(next.racks[opponent]) * 2;
-    const finalScores = { ...scores, [player]: scores[player] + bonus } as Record<PlayerId, number>;
+    const tally = finalTally(
+      next,
+      { ...scores, [player]: scores[player] + bonus } as Record<PlayerId, number>,
+      { [player]: bonus, [opponent]: 0 } as Record<PlayerId, number>,
+    );
     next = {
       ...next,
-      scores: finalScores,
+      scores: tally.scores,
       status: 'over',
-      result: { winner: winnerOf(finalScores), reason: 'out', adjustments: { [player]: bonus, [opponent]: 0 } as Record<PlayerId, number> },
+      result: { winner: winnerOf(tally.scores), reason: 'out', adjustments: tally.adjustments },
       history: pushHistory(next, { n: n + 1, player, kind: 'finish', score: bonus, note: 'เบี้ยหมดมือ' }),
     };
   }
@@ -164,13 +247,17 @@ function afterScorelessTurn(state: GameState, player: PlayerId, record: MoveReco
   if (passStreak < STALEMATE_LIMIT) return { ok: true, state: next, record };
 
   if (state.bag.length === 0) {
-    const adjustments = { 1: -rackValue(state.racks[1]), 2: -rackValue(state.racks[2]) } as Record<PlayerId, number>;
-    const scores = { 1: state.scores[1] + adjustments[1], 2: state.scores[2] + adjustments[2] } as Record<PlayerId, number>;
+    const rackLoss = { 1: -rackValue(state.racks[1]), 2: -rackValue(state.racks[2]) } as Record<PlayerId, number>;
+    const tally = finalTally(
+      state,
+      { 1: state.scores[1] + rackLoss[1], 2: state.scores[2] + rackLoss[2] } as Record<PlayerId, number>,
+      rackLoss,
+    );
     next = {
       ...next,
-      scores,
+      scores: tally.scores,
       status: 'over',
-      result: { winner: winnerOf(scores), reason: 'stalemate', adjustments },
+      result: { winner: winnerOf(tally.scores), reason: 'stalemate', adjustments: tally.adjustments },
       history: pushHistory(next, { n: record.n + 1, player, kind: 'finish', score: 0, note: 'ไม่มีใครลงคำได้ หักแต้มเบี้ยในมือ' }),
     };
   } else {
@@ -185,17 +272,36 @@ function afterScorelessTurn(state: GameState, player: PlayerId, record: MoveReco
   return { ok: true, state: next, record };
 }
 
-export function applyPass(state: GameState, player: PlayerId): ActionResult {
+export function applyPass(state: GameState, player: PlayerId, note?: string): ActionResult {
   const blocked = guard(state, player);
   if (blocked) return { ok: false, error: blocked };
-  return afterScorelessTurn(state, player, { n: state.history.length + 1, player, kind: 'pass', score: 0 });
+  return afterScorelessTurn(state, player, { n: state.history.length + 1, player, kind: 'pass', score: 0, ...(note ? { note } : {}) });
+}
+
+/**
+ * Tournament word check: a play with a word that isn't in the dictionary is taken back,
+ * scores nothing, and the turn passes (official challenge rule).
+ */
+export function applyInvalidPlay(state: GameState, player: PlayerId, words: string[]): ActionResult {
+  const blocked = guard(state, player);
+  if (blocked) return { ok: false, error: blocked };
+  return afterScorelessTurn(state, player, {
+    n: state.history.length + 1,
+    player,
+    kind: 'invalid',
+    score: 0,
+    words: words.map((text) => ({ text, score: 0 })),
+    note: `ไม่มีคำว่า ${words.map((w) => `“${w}”`).join(', ')} ในพจนานุกรม`,
+  });
 }
 
 export function applyExchange(state: GameState, player: PlayerId, tiles: string[], rng: Rng = Math.random): ActionResult {
   const blocked = guard(state, player);
   if (blocked) return { ok: false, error: blocked };
   if (tiles.length === 0) return { ok: false, error: 'เลือกเบี้ยที่ต้องการแลกก่อน' };
-  if (state.bag.length < tiles.length) return { ok: false, error: `เหลือเบี้ยในถุง ${state.bag.length} ตัว แลกได้ไม่เกินนั้น` };
+  if (state.bag.length < MIN_BAG_TO_EXCHANGE) {
+    return { ok: false, error: `แลกเบี้ยได้เมื่อในถุงเหลืออย่างน้อย ${MIN_BAG_TO_EXCHANGE} ตัว (ตอนนี้เหลือ ${state.bag.length})` };
+  }
   const remaining = removeTiles(state.racks[player], tiles);
   if (!remaining) return { ok: false, error: 'เบี้ยที่เลือกไม่อยู่ในมือ' };
 
@@ -263,7 +369,13 @@ export function deserializeGame(json: string): GameState | null {
   try {
     const raw = JSON.parse(json);
     if (!raw || !Array.isArray(raw.grid) || !raw.racks || !raw.scores) return null;
-    return { ...raw, grid: fromSparse(raw.grid) } as GameState;
+    return {
+      settings: DEFAULT_SETTINGS,
+      clock: { 1: 0, 2: 0 },
+      hintsUsed: { 1: 0, 2: 0 },
+      ...raw,
+      grid: fromSparse(raw.grid),
+    } as GameState;
   } catch {
     return null;
   }

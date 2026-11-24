@@ -21,8 +21,10 @@ export function GET() {
 ## Facts
 
 - Language: Thai (UI and dictionary)
-- Board: 15×15 with letter premiums (2L, 3L, 4L), word premiums (2W, 3W) and a centre star (word ×2)
-- Rack: 9 tiles; free upper/lower vowels and tone marks stack on letters (e.g. ที่, ปุ่ม)
+- Board: the official Kum-Kom board, 15 columns × 9 rows, with letter premiums (×2 light blue, ×3 green, ×4 orange, ×5 purple), word premiums (×2 pink, ×3 red) and a centre star (word ×2)
+- Tiles: 104 letter tiles (including 4 blanks and dual tiles such as ฆ/ซ), 9 per rack; free upper/lower vowels and tone marks stack on letters (e.g. ที่, ปุ่ม)
+- Distinctive rule: after each turn the earlier words are removed and only the words just made stay on the board
+- Options: turn or game timer (official: 2 minutes per turn or 25 minutes per game, 10-point penalty per minute over), hints, and a tournament word-check mode
 - Dictionary: 25,551 Thai words from the original Kum-Kom game's word list
 - Bingo bonus: 40/50/70/90 points for playing 6/7/8/9 tiles in one turn
 - Price: free; works on phones and computers

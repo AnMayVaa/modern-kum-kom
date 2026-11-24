@@ -26,11 +26,13 @@
   --color-gold-soft: #f2e1ad;
   --color-leaf: #2f7a4f;
 
+  /* The printed board's colours: red, pink, purple, orange, green and light blue. */
   --color-prem-3w: #c0392b;
-  --color-prem-2w: #cf6a8f;
-  --color-prem-4l: #db7f27;
-  --color-prem-3l: #3b875a;
-  --color-prem-2l: #4a8cc0;
+  --color-prem-2w: #cf4f8f;
+  --color-prem-5l: #7a4aa6;
+  --color-prem-4l: #e07a24;
+  --color-prem-3l: #3d9a46;
+  --color-prem-2l: #3ea5b5;
 }
 
 :root {
@@ -130,13 +132,61 @@ body {
 
 .sq[data-premium="3W"] { background: var(--color-prem-3w); }
 .sq[data-premium="2W"] { background: var(--color-prem-2w); }
+.sq[data-premium="5L"] { background: var(--color-prem-5l); }
 .sq[data-premium="4L"] { background: var(--color-prem-4l); }
 .sq[data-premium="3L"] { background: var(--color-prem-3l); }
 .sq[data-premium="2L"] { background: var(--color-prem-2l); }
 .sq[data-premium="STAR"] {
   background: var(--color-prem-2w);
-  color: var(--color-gold-soft);
+  color: #fff;
   font-size: 0.62em;
+}
+
+.sq-label {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1.05;
+  white-space: nowrap;
+}
+
+.sq-num {
+  font-size: 0.95em;
+  font-weight: 600;
+}
+
+.sq-of {
+  font-size: 0.62em;
+  opacity: 0.9;
+}
+
+/* The typing cursor: where the next tile goes, and which way the word runs. */
+.sq[data-cursor] {
+  box-shadow: inset 0 0 0 2px var(--color-gold);
+}
+
+.sq-cursor {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--color-gold-soft);
+  font-size: 1.9em;
+  font-weight: 700;
+  background: rgb(19 27 52 / 0.45);
+  border-radius: 3px;
+}
+
+.sq[data-drop="true"] {
+  box-shadow: inset 0 0 0 3px var(--color-gold);
+}
+
+.drag-ghost {
+  position: fixed;
+  z-index: 70;
+  pointer-events: none;
+  transform: translate(-50%, -60%) scale(1.15);
+  box-shadow: 0 12px 24px -8px rgb(19 27 52 / 0.6);
 }
 
 .sq > .tile {

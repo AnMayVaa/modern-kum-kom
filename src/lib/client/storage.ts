@@ -1,13 +1,16 @@
 'use client';
 
-import { deserializeGame, GameState, PlayerId, serializeGame } from '@/lib/game/state';
+import { DEFAULT_SETTINGS, deserializeGame, GameSettings, GameState, PlayerId, serializeGame } from '@/lib/game/state';
 import type { BotLevel } from '@/lib/game/bot';
 
 const KEYS = {
   name: 'kumkom_name',
   level: 'kumkom_bot_level',
-  solo: 'kumkom_solo_v2',
+  // v3: the official 15×9 board; saves from the old 15×15 board can't be resumed.
+  solo: 'kumkom_solo_v3',
   stats: 'kumkom_stats_v1',
+  settings: 'kumkom_settings_v1',
+  tips: 'kumkom_tips_v1',
 };
 
 function read(key: string): string | null {
@@ -34,6 +37,25 @@ export const loadLevel = (): BotLevel => {
   return v === 'easy' || v === 'hard' ? v : 'normal';
 };
 export const saveLevel = (level: BotLevel) => write(KEYS.level, level);
+
+/** The options last chosen for a new game. */
+export function loadSettings(): GameSettings {
+  try {
+    const raw = JSON.parse(read(KEYS.settings) ?? 'null') as Partial<GameSettings> | null;
+    return raw ? { ...DEFAULT_SETTINGS, ...raw } : DEFAULT_SETTINGS;
+  } catch {
+    return DEFAULT_SETTINGS;
+  }
+}
+export const saveSettings = (settings: GameSettings) => write(KEYS.settings, JSON.stringify(settings));
+
+/** One-time tips: returns true the first time a tip is asked for on this device. */
+export function firstTime(tip: string): boolean {
+  const seen = (read(KEYS.tips) ?? '').split(',');
+  if (seen.includes(tip)) return false;
+  write(KEYS.tips, [...seen.filter(Boolean), tip].join(','));
+  return true;
+}
 
 // --- Solo game in progress --------------------------------------------------------
 

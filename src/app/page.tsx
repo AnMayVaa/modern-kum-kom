@@ -8,9 +8,9 @@ import { DictionaryScreen, IdentityScreen, MenuScreen, ProfileScreen } from '@/c
 import { SiteCredit } from '@/components/SiteCredit';
 import { Wordmark } from '@/components/ui/Tile';
 import type { BotLevel } from '@/lib/game/bot';
-import { newGame } from '@/lib/game/state';
+import { DEFAULT_SETTINGS, GameSettings, newGame } from '@/lib/game/state';
 import { loadDictionary } from '@/lib/client/dictionary';
-import { clearSolo, loadLevel, loadName, loadSolo, saveLevel, saveName } from '@/lib/client/storage';
+import { clearSolo, loadLevel, loadName, loadSettings, loadSolo, saveLevel, saveName, saveSettings } from '@/lib/client/storage';
 
 type Screen =
   | { name: 'boot' }
@@ -26,6 +26,7 @@ export default function Home() {
   const [screen, setScreen] = useState<Screen>({ name: 'boot' });
   const [guestName, setGuestName] = useState('');
   const [level, setLevel] = useState<BotLevel>('normal');
+  const [settings, setSettings] = useState<GameSettings>(DEFAULT_SETTINGS);
   const [hasSaved, setHasSaved] = useState(false);
   const [joinCode, setJoinCode] = useState<string | null>(null);
 
@@ -40,6 +41,7 @@ export default function Home() {
     const timer = setTimeout(() => {
       setGuestName(loadName());
       setLevel(loadLevel());
+      setSettings(loadSettings());
       setHasSaved(!!loadSolo());
       setJoinCode(code);
     }, 0);
@@ -63,9 +65,9 @@ export default function Home() {
   }, []);
 
   const startSolo = useCallback(
-    (lvl: BotLevel) => {
+    (lvl: BotLevel, s: GameSettings) => {
       clearSolo();
-      setScreen({ name: 'game', setup: { mode: 'solo', state: newGame({ starter: 1 }), level: lvl, playerName: playerName || 'คุณ' } });
+      setScreen({ name: 'game', setup: { mode: 'solo', state: newGame({ settings: s }), level: lvl, playerName: playerName || 'คุณ' } });
     },
     [playerName],
   );
@@ -112,7 +114,7 @@ export default function Home() {
           key={screen.setup.state.id}
           setup={screen.setup}
           onExit={toMenu}
-          onRematch={screen.setup.mode === 'solo' ? () => startSolo(level) : undefined}
+          onRematch={screen.setup.mode === 'solo' ? () => startSolo(level, settings) : undefined}
         />
       );
     case 'online':
@@ -140,8 +142,13 @@ export default function Home() {
             setLevel(l);
             saveLevel(l);
           }}
+          settings={settings}
+          onSettings={(s) => {
+            setSettings(s);
+            saveSettings(s);
+          }}
           hasSavedGame={hasSaved}
-          onSolo={() => startSolo(level)}
+          onSolo={() => startSolo(level, settings)}
           onResume={() => {
             const saved = loadSolo();
             if (saved) setScreen({ name: 'game', setup: { mode: 'solo', state: saved.state, level: saved.level, playerName: playerName || 'คุณ' } });

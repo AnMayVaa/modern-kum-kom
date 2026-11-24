@@ -3,7 +3,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { primaryBtn, secondaryBtn } from '@/components/game/Sheets';
 import { useToast } from '@/components/ui/Toast';
-import { fromWire, GameState, newGame, PlayerId, toWire, WireState } from '@/lib/game/state';
+import { fromWire, GameSettings, GameState, newGame, PlayerId, toWire, WireState } from '@/lib/game/state';
+import { describeSettings } from '@/lib/game/settings';
+import { SetupForm } from '@/components/game/SetupForm';
+import { loadSettings, saveSettings } from '@/lib/client/storage';
 import { getPusher, realtimeAvailable, roomChannel, roomRequest, sendRoomEvent } from '@/lib/client/realtime';
 
 type Phase = 'choose' | 'working' | 'searching' | 'hosting' | 'paired';
@@ -34,6 +37,8 @@ export function Lobby({
   const [myReady, setMyReady] = useState(false);
   const [theirReady, setTheirReady] = useState(false);
   const [setup, setSetup] = useState<GameState | null>(null);
+  // Online games have no hints; the host chooses the clock and the word check.
+  const [rules, setRules] = useState<GameSettings>(() => ({ ...loadSettings(), hints: 0 }));
   const live = useRef({ myReady, setup, phase });
   useEffect(() => {
     live.current = { myReady, setup, phase };
@@ -147,8 +152,9 @@ export function Lobby({
     if (!room) return;
     let state: GameState | null = null;
     if (room.me === 1) {
-      state = newGame({ starter: Math.random() < 0.5 ? 1 : 2 });
+      state = newGame({ settings: rules });
       setSetup(state);
+      saveSettings({ ...loadSettings(), timer: rules.timer, strict: rules.strict });
     }
     setMyReady(true);
     const sent = await sendRoomEvent(room.id, room.me, 'ready', { name: playerName, ...(state ? { setup: toWire(state) } : {}) });
@@ -263,6 +269,15 @@ export function Lobby({
               </div>
             ))}
           </div>
+          {room.me === 1 && !myReady ? (
+            <div className="mb-5">
+              <SetupForm settings={rules} onSettings={setRules} online />
+            </div>
+          ) : (
+            <p className="mb-5 rounded-xl bg-kram-50 px-3 py-2.5 text-sm text-kram-700">
+              {setup ? `กติกาห้องนี้: ${describeSettings(setup.settings, { hints: false })}` : 'เจ้าของห้องกำลังเลือกกติกา (เวลาและการตรวจคำ)'}
+            </p>
+          )}
           <button type="button" className={`${primaryBtn} w-full py-4 text-base`} disabled={myReady} onClick={ready}>
             {myReady ? (theirReady ? 'กำลังเริ่มเกม…' : `รอ ${opponent ?? 'คู่แข่ง'} กดพร้อม`) : 'พร้อมเล่น'}
           </button>

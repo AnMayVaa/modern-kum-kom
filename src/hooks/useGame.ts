@@ -1,26 +1,30 @@
 'use client';
 
 // Game controller shared by solo and online play: holds the game state, the tiles the
-// player is placing this turn (the draft), and every action the screen can trigger.
+// player is placing this turn (the draft), the typing cursor, the clocks, and every action
+// the screen can trigger.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { GRID_ROWS } from '@/lib/game/constants';
-import { cloneGrid, isMainRow, markHost } from '@/lib/game/board';
+import { BOARD_COLS, GRID_ROWS, MIN_BAG_TO_EXCHANGE } from '@/lib/game/constants';
+import { cellKey, cloneGrid, isMainRow, markHost } from '@/lib/game/board';
 import { evaluateMove, MoveEvaluation, Placement } from '@/lib/game/rules';
 import {
+  addTime,
   applyExchange,
   applyForfeit,
+  applyInvalidPlay,
   applyPass,
   applyPlay,
   ActionResult,
   GameState,
+  hintsLeft,
   MoveRecord,
   otherPlayer,
   PlayerId,
-  reorderRack,
+  spendHint,
 } from '@/lib/game/state';
-import { isBlankTile, shuffle, tileOptions, tileValue } from '@/lib/game/tiles';
-import { isLowerContent, isLowerMark, isTopMark, isUpperVowel } from '@/lib/game/thai';
+import { isBlankTile, isDualTile, shuffle, tileOptions, tileValue } from '@/lib/game/tiles';
+import { isLowerContent, isLowerMark, isMainChar, isMark, isTopMark, isUpperVowel } from '@/lib/game/thai';
 import { BotLevel, CandidateMove, pickMove } from '@/lib/game/bot';
 import type { Dictionary } from '@/lib/game/dictionary';
 import { checkWordsOnServer, findMoves, getLoadedDictionary } from '@/lib/client/dictionary';
@@ -34,6 +38,7 @@ export type DraftTile = {
   rackIndex: number;
   original: string | null;
 };
+/** A mark cell's new content; '' takes off the marks of a letter that is being replaced. */
 export type DraftMark = { kind: 'mark'; r: number; c: number; char: string; original: string | null };
 export type Draft = DraftTile | DraftMark;
 
@@ -41,6 +46,12 @@ export type Picker =
   | { type: 'blank'; r: number; c: number; rackIndex: number; original: string | null }
   | { type: 'dual'; r: number; c: number; rackIndex: number; original: string | null; options: string[] }
   | { type: 'mark'; r: number; c: number };
+
+export interface Cursor {
+  r: number;
+  c: number;
+  dir: 'h' | 'v';
+}
 
 export interface Notice {
   title: string;
@@ -66,16 +77,22 @@ export function useGame({ me, initial, dictionary, botLevel = null, onChange, no
   const [game, setGame] = useState(initial);
   const [draft, setDraft] = useState<Draft[]>([]);
   const [selected, setSelected] = useState<number | null>(null);
+  const [cursor, setCursor] = useState<Cursor | null>(null);
   const [picker, setPicker] = useState<Picker | null>(null);
   const [pendingOverwrite, setPendingOverwrite] = useState<{ r: number; c: number; rackIndex: number } | null>(null);
   const [busy, setBusy] = useState<null | 'submit' | 'hint'>(null);
+  /** When the current turn started on this device, for the clocks. */
+  const [turnStart, setTurnStart] = useState(() => Date.now());
 
   const callbacks = useRef({ onChange, notify });
+  const latest = useRef({ game, turnStart, draft });
   useEffect(() => {
     callbacks.current = { onChange, notify };
+    latest.current = { game, turnStart, draft };
   });
 
   const rack = game.racks[me];
+  const strict = game.settings.strict;
   const isMyTurn = game.status === 'playing' && game.current === me;
   const botThinking = !!botLevel && game.status === 'playing' && game.current !== me;
 
@@ -86,7 +103,7 @@ export function useGame({ me, initial, dictionary, botLevel = null, onChange, no
 
   const displayGrid = useMemo(() => {
     const grid = cloneGrid(game.grid);
-    for (const d of draft) grid[d.r][d.c] = d.char;
+    for (const d of draft) grid[d.r][d.c] = d.char || null;
     return grid;
   }, [game.grid, draft]);
 
@@ -94,8 +111,8 @@ export function useGame({ me, initial, dictionary, botLevel = null, onChange, no
     const set = new Set(game.blanks);
     for (const d of draft) {
       if (d.kind !== 'tile') continue;
-      if (d.isBlank) set.add(`${d.r},${d.c}`);
-      else set.delete(`${d.r},${d.c}`);
+      if (d.isBlank) set.add(cellKey(d.r, d.c));
+      else set.delete(cellKey(d.r, d.c));
     }
     return set;
   }, [game.blanks, draft]);
@@ -110,34 +127,69 @@ export function useGame({ me, initial, dictionary, botLevel = null, onChange, no
     [draft, rack],
   );
 
+  // In tournament mode the preview shows the words and the score, not whether they are real.
   const evaluation: MoveEvaluation | null = useMemo(
     () =>
       draft.some((d) => d.kind === 'tile')
-        ? evaluateMove(game.grid, new Set(game.blanks), placements, dictionary?.has)
+        ? evaluateMove(game.grid, new Set(game.blanks), placements, strict ? undefined : dictionary?.has)
         : null,
-    [draft, game.grid, game.blanks, placements, dictionary],
+    [draft, game.grid, game.blanks, placements, dictionary, strict],
   );
 
   const commit = useCallback((result: ActionResult & { ok: true }) => {
     setGame(result.state);
     setDraft([]);
     setSelected(null);
+    setCursor(null);
     setPicker(null);
+    setTurnStart(Date.now());
     callbacks.current.onChange?.(result.state, result.record);
+  }, []);
+
+  /** The game with this player's thinking time for the current turn added. */
+  const timed = useCallback((player: PlayerId) => {
+    const { game: g, turnStart: t } = latest.current;
+    return addTime(g, player, Date.now() - t);
   }, []);
 
   // ---- Placing tiles ----------------------------------------------------------------
 
-  const addTile = useCallback((tile: DraftTile) => {
-    setDraft((list) => [...list.filter((d) => !(d.r === tile.r && d.c === tile.c)), tile]);
-    setSelected(null);
-  }, []);
+  /** The next empty letter square after (r, c) in a direction, or null at the edge. */
+  const nextEmpty = useCallback(
+    (from: Cursor, grid = displayGrid): Cursor | null => {
+      let { r, c } = from;
+      for (;;) {
+        if (from.dir === 'h') c += 1;
+        else r += 2;
+        if (c >= BOARD_COLS || r >= GRID_ROWS) return null;
+        if (!grid[r][c]) return { r, c, dir: from.dir };
+      }
+    },
+    [displayGrid],
+  );
+
+  const addTile = useCallback(
+    (tile: DraftTile) => {
+      setDraft((list) => [...list.filter((d) => !(d.r === tile.r && d.c === tile.c)), tile]);
+      setSelected(null);
+      // Keep typing along the same line.
+      setCursor((cur) => {
+        if (!cur || cur.r !== tile.r || cur.c !== tile.c) return cur;
+        const grid = cloneGrid(displayGrid);
+        grid[tile.r][tile.c] = tile.char;
+        return nextEmpty(cur, grid);
+      });
+    },
+    [displayGrid, nextEmpty],
+  );
 
   const placeFromRack = useCallback(
-    (rackIndex: number, r: number, c: number, original: string | null) => {
+    (rackIndex: number, r: number, c: number, original: string | null, letter?: string) => {
       const tile = rack[rackIndex];
+      if (tile === undefined) return;
       const options = tileOptions(tile);
-      if (isBlankTile(tile)) setPicker({ type: 'blank', r, c, rackIndex, original });
+      if (letter) addTile({ kind: 'tile', r, c, char: letter, isBlank: isBlankTile(tile), rackIndex, original });
+      else if (isBlankTile(tile)) setPicker({ type: 'blank', r, c, rackIndex, original });
       else if (options.length > 1) setPicker({ type: 'dual', r, c, rackIndex, original, options });
       else addTile({ kind: 'tile', r, c, char: tile, isBlank: false, rackIndex, original });
       setSelected(null);
@@ -150,41 +202,44 @@ export function useGame({ me, initial, dictionary, botLevel = null, onChange, no
       setDraft((list) => {
         const removed = list.find((d) => d.kind === 'tile' && d.r === r && d.c === c);
         if (!removed) return list;
-        const rest = list.filter((d) => d !== removed);
-        if (removed.original) return rest;
-        // Drop marks that were sitting on this letter.
-        return rest.filter((d) => {
+        // Marks added to (or taken off) this letter go with it.
+        return list.filter((d) => {
+          if (d === removed) return false;
           if (d.kind !== 'mark') return true;
-          const host = markHost(d.r, d.c, d.char);
+          const content = d.char || game.grid[d.r][d.c] || '';
+          const host = content ? markHost(d.r, d.c, content) : null;
           return !(host && host.r === r && host.c === c);
         });
       });
     },
-    [],
+    [game.grid],
   );
+
+  const canAct = useCallback(() => {
+    if (game.status !== 'playing') return false;
+    if (!isMyTurn) {
+      callbacks.current.notify({ title: 'ยังไม่ถึงตาของคุณ' });
+      return false;
+    }
+    return !busy;
+  }, [game.status, isMyTurn, busy]);
 
   const tapCell = useCallback(
     (r: number, c: number) => {
-      if (game.status !== 'playing') return;
-      if (!isMyTurn) {
-        callbacks.current.notify({ title: 'ยังไม่ถึงตาของคุณ' });
-        return;
-      }
-      if (busy) return;
+      if (!canAct()) return;
       if (isMainRow(r)) {
         if (draft.some((d) => d.kind === 'tile' && d.r === r && d.c === c)) {
           removeTileAt(r, c);
           return;
         }
-        if (selected === null) {
-          if (!game.grid[r][c]) callbacks.current.notify({ title: 'แตะเบี้ยในมือก่อน แล้วแตะช่องที่จะวาง' });
+        if (selected !== null) {
+          if (game.grid[r][c]) setPendingOverwrite({ r, c, rackIndex: selected });
+          else placeFromRack(selected, r, c, null);
           return;
         }
-        if (game.grid[r][c]) {
-          setPendingOverwrite({ r, c, rackIndex: selected });
-          return;
-        }
-        placeFromRack(selected, r, c, null);
+        if (game.grid[r][c]) return;
+        // No tile picked: put the typing cursor here (tap again to switch direction).
+        setCursor((cur) => (cur && cur.r === r && cur.c === c ? { r, c, dir: cur.dir === 'h' ? 'v' : 'h' } : { r, c, dir: 'h' }));
         return;
       }
       const hasAbove = r - 1 >= 0 && !!displayGrid[r - 1][c];
@@ -195,7 +250,18 @@ export function useGame({ me, initial, dictionary, botLevel = null, onChange, no
       }
       setPicker({ type: 'mark', r, c });
     },
-    [game.status, game.grid, isMyTurn, busy, draft, selected, displayGrid, placeFromRack, removeTileAt],
+    [canAct, game.grid, draft, selected, displayGrid, placeFromRack, removeTileAt],
+  );
+
+  /** Drag and drop from the rack onto a square. */
+  const dropTile = useCallback(
+    (rackIndex: number, r: number, c: number) => {
+      if (!canAct() || !isMainRow(r) || usedIndexes.has(rackIndex)) return;
+      if (draft.some((d) => d.kind === 'tile' && d.r === r && d.c === c)) return;
+      if (game.grid[r][c]) setPendingOverwrite({ r, c, rackIndex });
+      else placeFromRack(rackIndex, r, c, null);
+    },
+    [canAct, usedIndexes, draft, game.grid, placeFromRack],
   );
 
   const confirmOverwrite = useCallback(() => {
@@ -222,18 +288,25 @@ export function useGame({ me, initial, dictionary, botLevel = null, onChange, no
     [picker, addTile],
   );
 
-  /** What can go in a mark cell right now. Marks placed this turn can be swapped; marks already on the board stay. */
+  /** What can go in a mark cell right now. */
   const markSlot = useCallback(
     (r: number, c: number) => {
       const committed = game.grid[r][c];
       const draftMark = draft.find((d) => d.kind === 'mark' && d.r === r && d.c === c);
-      const current = draftMark?.char ?? committed ?? '';
+      const current = draftMark ? draftMark.char : (committed ?? '');
+      // The marks of a letter being replaced this turn may be changed or taken off.
+      const owner = committed ? markHost(r, c, committed) : null;
+      const replaceable =
+        !!owner && draft.some((d) => d.kind === 'tile' && d.original && d.r === owner.r && d.c === owner.c);
+      const fixed = replaceable ? '' : (committed ?? '');
       return {
         current,
         committed,
+        fixed,
+        replaceable,
         hasDraft: !!draftMark,
-        canUpper: r + 1 < GRID_ROWS && !!displayGrid[r + 1][c] && !isLowerContent(committed),
-        canLower: r - 1 >= 0 && !!displayGrid[r - 1][c] && !committed,
+        canUpper: r + 1 < GRID_ROWS && !!displayGrid[r + 1][c] && !isLowerContent(fixed),
+        canLower: r - 1 >= 0 && !!displayGrid[r - 1][c] && !fixed,
       };
     },
     [game.grid, draft, displayGrid],
@@ -242,7 +315,7 @@ export function useGame({ me, initial, dictionary, botLevel = null, onChange, no
   const addMark = useCallback(
     (r: number, c: number, mark: string) => {
       const slot = markSlot(r, c);
-      const fixed = [...(slot.committed ?? '')];
+      const fixed = [...slot.fixed];
       const now = isLowerContent(slot.current) ? [] : [...slot.current];
       const vowel = now.find(isUpperVowel) ?? '';
       const top = now.find(isTopMark) ?? '';
@@ -263,31 +336,106 @@ export function useGame({ me, initial, dictionary, botLevel = null, onChange, no
     [markSlot],
   );
 
+  /** Undo this turn's change to a mark cell. */
   const clearMark = useCallback((r: number, c: number) => {
     setDraft((list) => list.filter((d) => !(d.kind === 'mark' && d.r === r && d.c === c)));
   }, []);
 
+  /** Take off the marks of a letter that is being replaced. */
+  const removeMarks = useCallback(
+    (r: number, c: number) => {
+      if (!markSlot(r, c).replaceable) return;
+      setDraft((list) => [
+        ...list.filter((d) => !(d.kind === 'mark' && d.r === r && d.c === c)),
+        { kind: 'mark', r, c, char: '', original: game.grid[r][c] },
+      ]);
+    },
+    [markSlot, game.grid],
+  );
+
   const selectRack = useCallback(
     (i: number) => {
       if (usedIndexes.has(i)) return;
+      // With a typing cursor on the board, tapping a tile puts it there straight away.
+      if (cursor && isMyTurn && !busy && !displayGrid[cursor.r][cursor.c]) {
+        placeFromRack(i, cursor.r, cursor.c, null);
+        return;
+      }
       setSelected((s) => (s === i ? null : i));
     },
-    [usedIndexes],
+    [usedIndexes, cursor, isMyTurn, busy, displayGrid, placeFromRack],
   );
+
+  /** Puts the rack in a new order; `order` lists old positions in their new order. */
+  const reorder = useCallback(
+    (order: number[]) => {
+      const next = order.map((i) => rack[i]);
+      setGame((g) => ({ ...g, racks: { ...g.racks, [me]: next } as Record<PlayerId, string[]> }));
+      setDraft((list) => list.map((d) => (d.kind === 'tile' ? { ...d, rackIndex: order.indexOf(d.rackIndex) } : d)));
+      setSelected((s) => (s === null ? null : order.indexOf(s)));
+      setPicker((p) => (p && p.type !== 'mark' ? { ...p, rackIndex: order.indexOf(p.rackIndex) } : p));
+    },
+    [rack, me],
+  );
+
+  /** Drag a rack tile to another slot. */
+  const moveRackTile = useCallback(
+    (from: number, to: number) => {
+      if (from === to) return;
+      const order = rack.map((_, i) => i);
+      order.splice(to, 0, order.splice(from, 1)[0]);
+      reorder(order);
+    },
+    [rack, reorder],
+  );
+
+  const shuffleRack = useCallback(() => reorder(shuffle(rack.map((_, i) => i))), [rack, reorder]);
 
   const recallAll = useCallback(() => {
     setDraft([]);
     setSelected(null);
   }, []);
 
-  const shuffleRack = useCallback(() => {
-    const free = rack.map((_, i) => i).filter((i) => !usedIndexes.has(i));
-    const mixed = shuffle(free.map((i) => rack[i]));
-    const next = [...rack];
-    free.forEach((idx, k) => (next[idx] = mixed[k]));
-    setGame((g) => reorderRack(g, me, next));
-    setSelected(null);
-  }, [rack, usedIndexes, me]);
+  // ---- Typing (computer keyboard) -------------------------------------------------------
+
+  /** Places the rack tile for a typed letter at the cursor. */
+  const typeLetter = useCallback(
+    (letter: string) => {
+      if (!cursor || !isMyTurn || busy || displayGrid[cursor.r][cursor.c]) return false;
+      const free = rack.map((t, i) => ({ t, i })).filter(({ i }) => !usedIndexes.has(i));
+      const hit =
+        free.find(({ t }) => t === letter) ??
+        free.find(({ t }) => isDualTile(t) && tileOptions(t).includes(letter)) ??
+        free.find(({ t }) => isBlankTile(t));
+      if (!hit) {
+        callbacks.current.notify({ title: `ไม่มี “${letter}” ในมือ`, tone: 'error' });
+        return false;
+      }
+      placeFromRack(hit.i, cursor.r, cursor.c, null, letter);
+      return true;
+    },
+    [cursor, isMyTurn, busy, displayGrid, rack, usedIndexes, placeFromRack],
+  );
+
+  /** Adds a typed vowel or tone mark to the letter placed last. */
+  const typeMark = useCallback(
+    (mark: string) => {
+      const last = [...draft].reverse().find((d): d is DraftTile => d.kind === 'tile');
+      if (!last) return false;
+      // ต่ำ: a tone typed after ำ goes above the ำ tile, which is where it already is.
+      return addMark(isLowerMark(mark) ? last.r + 1 : last.r - 1, last.c, mark);
+    },
+    [draft, addMark],
+  );
+
+  const undoLast = useCallback(() => {
+    const last = draft.at(-1);
+    if (!last) return;
+    if (last.kind === 'tile') {
+      removeTileAt(last.r, last.c);
+      setCursor((cur) => ({ r: last.r, c: last.c, dir: cur?.dir ?? 'h' }));
+    } else clearMark(last.r, last.c);
+  }, [draft, removeTileAt, clearMark]);
 
   // ---- Turn actions -----------------------------------------------------------------
 
@@ -306,25 +454,35 @@ export function useGame({ me, initial, dictionary, botLevel = null, onChange, no
         const results = await checkWordsOnServer(evaluation.words.map((w) => w.text));
         isWord = (w: string) => results[w] === true;
       }
-      const result = applyPlay(game, me, placements, isWord);
+      const invalid = evaluation.words.filter((w) => !isWord!(w.text)).map((w) => w.text);
+      const state = timed(me);
+      if (invalid.length && strict) {
+        const lost = applyInvalidPlay(state, me, invalid);
+        if (lost.ok) {
+          commit(lost);
+          callbacks.current.notify({ title: `ไม่มีคำว่า ${invalid.map((w) => `“${w}”`).join(' ')}`, body: 'ตามกติกาแข่งขัน เสียตานี้และได้ 0 แต้ม', tone: 'error' });
+        }
+        return;
+      }
+      const result = applyPlay(state, me, placements, isWord);
       if (!result.ok) {
         callbacks.current.notify({ title: result.error, tone: 'error' });
         return;
       }
       commit(result);
-      const bingo = result.record.bingo ? ` รวมโบนัสใช้เบี้ย ${result.record.tiles} ตัว +${result.record.bingo}` : '';
-      callbacks.current.notify({ title: `ลงคำ ${wordsLabel(result.record.words)} +${result.record.score}`, body: bingo || undefined, tone: 'success' });
+      const bingo = result.record.bingo ? `ลงเบี้ย ${result.record.tiles} ตัว ได้โบนัส +${result.record.bingo}` : undefined;
+      callbacks.current.notify({ title: `ลงคำ ${wordsLabel(result.record.words)} +${result.record.score}`, body: bingo, tone: 'success' });
     } catch {
       callbacks.current.notify({ title: 'ตรวจคำไม่สำเร็จ ตรวจอินเทอร์เน็ตแล้วลองอีกครั้ง', tone: 'error' });
     } finally {
       submitting.current = false;
       setBusy(null);
     }
-  }, [isMyTurn, busy, evaluation, dictionary, game, me, placements, commit]);
+  }, [isMyTurn, busy, evaluation, dictionary, me, placements, commit, strict, timed]);
 
   const exchange = useCallback(
     (indexes: number[]) => {
-      const result = applyExchange(game, me, indexes.map((i) => rack[i]));
+      const result = applyExchange(timed(me), me, indexes.map((i) => rack[i]));
       if (!result.ok) {
         callbacks.current.notify({ title: result.error, tone: 'error' });
         return false;
@@ -333,14 +491,14 @@ export function useGame({ me, initial, dictionary, botLevel = null, onChange, no
       callbacks.current.notify({ title: `แลกเบี้ย ${indexes.length} ตัวแล้ว` });
       return true;
     },
-    [game, me, rack, commit],
+    [me, rack, commit, timed],
   );
 
   const pass = useCallback(() => {
-    const result = applyPass(game, me);
+    const result = applyPass(timed(me), me);
     if (!result.ok) return callbacks.current.notify({ title: result.error, tone: 'error' });
     commit(result);
-  }, [game, me, commit]);
+  }, [me, commit, timed]);
 
   const resign = useCallback(() => {
     const state = applyForfeit(game, me, 'resign');
@@ -349,8 +507,9 @@ export function useGame({ me, initial, dictionary, botLevel = null, onChange, no
     callbacks.current.onChange?.(state, state.history.at(-1) ?? null);
   }, [game, me]);
 
+  const hints = hintsLeft(game, me);
   const hint = useCallback(async () => {
-    if (!isMyTurn || busy) return;
+    if (!isMyTurn || busy || hints === 0) return;
     setBusy('hint');
     try {
       const moves = await findMoves(game.grid, game.blanks, rack);
@@ -359,13 +518,15 @@ export function useGame({ me, initial, dictionary, botLevel = null, onChange, no
         callbacks.current.notify({ title: 'ไม่พบคำที่ลงได้ในตานี้', body: 'ลองแลกเบี้ยหรือข้ามตา' });
         return;
       }
+      setGame((g) => spendHint(g, me));
       setDraft(candidateToDraft(best, rack, game));
       setSelected(null);
+      setCursor(null);
       callbacks.current.notify({ title: `ลองคำ ${wordsLabel(best.words)} ได้ ${best.total} แต้ม`, body: 'กดลงคำได้เลย หรือแตะเบี้ยเพื่อเก็บคืน' });
     } finally {
       setBusy(null);
     }
-  }, [isMyTurn, busy, game, rack]);
+  }, [isMyTurn, busy, hints, game, rack, me]);
 
   /** Online: take a newer state from the other player. */
   const receive = useCallback(
@@ -378,7 +539,9 @@ export function useGame({ me, initial, dictionary, botLevel = null, onChange, no
       });
       setDraft([]);
       setSelected(null);
+      setCursor(null);
       setPicker(null);
+      setTurnStart(Date.now());
     },
     [me],
   );
@@ -388,6 +551,22 @@ export function useGame({ me, initial, dictionary, botLevel = null, onChange, no
     setGame((g) => applyForfeit(g, otherPlayer(me), 'left'));
     setDraft([]);
   }, [me]);
+
+  // ---- Per-turn time limit: the turn passes when time runs out ------------------------------
+
+  const { timer } = game.settings;
+  useEffect(() => {
+    if (timer.kind !== 'turn' || !isMyTurn) return;
+    const left = timer.seconds * 1000 - (Date.now() - turnStart);
+    const id = setTimeout(() => {
+      const result = applyPass(timed(me), me, 'หมดเวลา');
+      if (result.ok) {
+        commit(result);
+        callbacks.current.notify({ title: 'หมดเวลา ข้ามตาให้อัตโนมัติ', tone: 'error' });
+      }
+    }, Math.max(0, left));
+    return () => clearTimeout(id);
+  }, [timer, isMyTurn, turnStart, me, commit, timed]);
 
   // ---- The bot (solo mode) ------------------------------------------------------------
 
@@ -403,11 +582,11 @@ export function useGame({ me, initial, dictionary, botLevel = null, onChange, no
       if (cancelled) return;
       const dict = getLoadedDictionary();
       const choice = pickMove(moves, botLevel);
-      let result: ActionResult | null = choice && dict ? applyPlay(game, botId, choice.placements, dict.has) : null;
+      const state = timed(botId);
+      let result: ActionResult | null = choice && dict ? applyPlay(state, botId, choice.placements, dict.has) : null;
       if (!result?.ok) {
-        const n = Math.min(game.bag.length, botRack.length);
-        const worst = [...botRack].sort((a, b) => tileValue(b) - tileValue(a)).slice(0, n);
-        result = n > 0 ? applyExchange(game, botId, worst) : applyPass(game, botId);
+        const worst = [...botRack].sort((a, b) => tileValue(b) - tileValue(a)).slice(0, 5);
+        result = state.bag.length >= MIN_BAG_TO_EXCHANGE ? applyExchange(state, botId, worst) : applyPass(state, botId);
       }
       if (cancelled || !result.ok) return;
       commit(result);
@@ -423,7 +602,7 @@ export function useGame({ me, initial, dictionary, botLevel = null, onChange, no
     return () => {
       cancelled = true;
     };
-  }, [botLevel, game, me, commit]);
+  }, [botLevel, game, me, commit, timed]);
 
   return {
     game,
@@ -434,24 +613,34 @@ export function useGame({ me, initial, dictionary, botLevel = null, onChange, no
     displayBlanks,
     usedIndexes,
     selected,
+    cursor,
     picker,
     pendingOverwrite,
     evaluation,
     isMyTurn,
     botThinking,
     busy,
+    hints,
+    turnStart,
     tapCell,
+    dropTile,
     selectRack,
+    moveRackTile,
     pickLetter,
     closePicker: () => setPicker(null),
+    clearCursor: () => setCursor(null),
     markSlot,
     addMark,
     clearMark,
+    removeMarks,
     confirmOverwrite,
     cancelOverwrite: () => setPendingOverwrite(null),
     recallAll,
     removeTileAt,
     shuffleRack,
+    typeLetter,
+    typeMark,
+    undoLast,
     submit,
     exchange,
     pass,
@@ -463,6 +652,9 @@ export function useGame({ me, initial, dictionary, botLevel = null, onChange, no
 }
 
 export type GameController = ReturnType<typeof useGame>;
+
+export const isTypedLetter = isMainChar;
+export const isTypedMark = isMark;
 
 function candidateToDraft(move: CandidateMove, rack: string[], game: GameState): Draft[] {
   const taken = new Set<number>();

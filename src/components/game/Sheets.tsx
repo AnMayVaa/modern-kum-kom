@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { Sheet } from '@/components/ui/Sheet';
 import { RulesContent } from '@/components/RulesContent';
 import { RackTileFace } from '@/components/ui/Tile';
-import { BLANK_CHOICES, LOWER_VOWELS, TOP_MARKS, UPPER_VOWELS } from '@/lib/game/constants';
+import { BLANK_CHOICES, LOWER_VOWELS, MIN_BAG_TO_EXCHANGE, TOP_MARKS, UPPER_VOWELS } from '@/lib/game/constants';
 import { clusterText, isLowerContent } from '@/lib/game/thai';
 import { countTiles } from '@/lib/game/tiles';
 import type { GameState, PlayerId } from '@/lib/game/state';
@@ -42,7 +42,8 @@ export function PickerSheet({ ctl }: { ctl: GameController }) {
   const slot = ctl.markSlot(p.r, p.c);
   const hostRow = slot.current && isLowerContent(slot.current) ? p.r - 1 : slot.canUpper || !slot.canLower ? p.r + 1 : p.r - 1;
   const host = ctl.displayGrid[hostRow]?.[p.c] ?? '';
-  const preview = host ? clusterText(host, isLowerContent(slot.current) ? '' : slot.current, isLowerContent(slot.current) ? slot.current : '') : '';
+  const shown = slot.current ?? '';
+  const preview = host ? clusterText(host, isLowerContent(shown) ? '' : shown, isLowerContent(shown) ? shown : '') : '';
   const group = (title: string, marks: string[], enabled: boolean) => (
     <div>
       <p className="mb-1.5 text-sm text-kram-500">{title}</p>
@@ -77,9 +78,14 @@ export function PickerSheet({ ctl }: { ctl: GameController }) {
         {group('วรรณยุกต์และเครื่องหมายบน', TOP_MARKS, slot.canUpper)}
         {group('สระล่าง', LOWER_VOWELS, slot.canLower)}
       </div>
+      {slot.replaceable && slot.committed && slot.current !== '' && (
+        <button type="button" className={`${secondaryBtn} mt-5 w-full`} onClick={() => ctl.removeMarks(p.r, p.c)}>
+          เอา “{slot.committed}” ของตัวที่ถูกแทนออก
+        </button>
+      )}
       <div className="mt-5 grid grid-cols-2 gap-2">
         <button type="button" className={secondaryBtn} disabled={!slot.hasDraft} onClick={() => ctl.clearMark(p.r, p.c)}>
-          ล้างช่องนี้
+          ยกเลิกช่องนี้
         </button>
         <button type="button" className={primaryBtn} onClick={ctl.closePicker}>
           เสร็จ
@@ -92,6 +98,7 @@ export function PickerSheet({ ctl }: { ctl: GameController }) {
 export function ExchangeSheet({ open, onClose, ctl }: { open: boolean; onClose: () => void; ctl: GameController }) {
   const [picked, setPicked] = useState<number[]>([]);
   const bag = ctl.game.bag.length;
+  const canSwap = bag >= MIN_BAG_TO_EXCHANGE;
   const close = () => {
     setPicked([]);
     onClose();
@@ -99,7 +106,9 @@ export function ExchangeSheet({ open, onClose, ctl }: { open: boolean; onClose: 
   return (
     <Sheet open={open} title="แลกเบี้ยหรือข้ามตา" onClose={close}>
       <p className="mb-3 text-sm text-kram-700">
-        แตะเบี้ยที่อยากเปลี่ยน แล้วจั่วใหม่จากถุงเท่าจำนวนที่แลก (ในถุงเหลือ {bag} ตัว) การแลกหรือข้ามตาไม่ได้แต้ม
+        {canSwap
+          ? `แตะเบี้ยที่อยากเปลี่ยน 1–9 ตัว แล้วจั่วใหม่จากถุงเท่าจำนวนที่แลก (ในถุงเหลือ ${bag} ตัว) การแลกหรือข้ามตาได้ 0 แต้ม`
+          : `ในถุงเหลือ ${bag} ตัว ตามกติกาแลกเบี้ยได้เมื่อในถุงเหลืออย่างน้อย ${MIN_BAG_TO_EXCHANGE} ตัว จึงข้ามตาได้อย่างเดียว`}
       </p>
       <div className="mb-5 grid grid-cols-9 gap-1.5" style={{ ['--t' as string]: 'min(2.75rem, calc((100vw - 4.5rem) / 9.4))' }}>
         {ctl.rack.map((tile, i) => (
@@ -109,7 +118,8 @@ export function ExchangeSheet({ open, onClose, ctl }: { open: boolean; onClose: 
             aria-pressed={picked.includes(i)}
             onClick={() => setPicked((s) => (s.includes(i) ? s.filter((x) => x !== i) : [...s, i]))}
             aria-label={tile === '0' ? 'เบี้ยว่าง' : tile}
-            className={`tile aspect-square w-full text-[calc(var(--t)*0.6)] ${picked.includes(i) ? '-translate-y-1 ring-[3px] ring-chad' : ''}`}
+            disabled={!canSwap}
+            className={`tile aspect-square w-full text-[calc(var(--t)*0.6)] disabled:opacity-50 ${picked.includes(i) ? '-translate-y-1 ring-[3px] ring-chad' : ''}`}
           >
             <RackTileFace tile={tile} />
           </button>
@@ -129,10 +139,10 @@ export function ExchangeSheet({ open, onClose, ctl }: { open: boolean; onClose: 
         <button
           type="button"
           className={primaryBtn}
-          disabled={picked.length === 0 || picked.length > bag}
+          disabled={!canSwap || picked.length === 0}
           onClick={() => ctl.exchange(picked) && close()}
         >
-          {picked.length === 0 ? 'เลือกเบี้ยที่จะแลก' : picked.length > bag ? `แลกได้ไม่เกิน ${bag} ตัว` : `แลก ${picked.length} ตัว`}
+          {!canSwap ? 'แลกไม่ได้แล้ว' : picked.length === 0 ? 'เลือกเบี้ยที่จะแลก' : `แลก ${picked.length} ตัว`}
         </button>
       </div>
     </Sheet>
@@ -161,9 +171,10 @@ export function BagSheet({ open, onClose, game, me }: { open: boolean; onClose: 
   );
 }
 
-export function RulesSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function RulesSheet({ open, onClose, settings }: { open: boolean; onClose: () => void; settings?: string }) {
   return (
     <Sheet open={open} title="วิธีเล่นคำคม" onClose={onClose}>
+      {settings && <p className="mb-4 rounded-xl bg-kram-50 p-3 text-sm text-kram-700">เกมนี้: {settings}</p>}
       <RulesContent />
     </Sheet>
   );

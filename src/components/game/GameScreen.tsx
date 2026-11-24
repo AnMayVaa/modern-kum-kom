@@ -7,13 +7,16 @@ import { BagSheet, ExchangeSheet, PickerSheet, primaryBtn, RulesSheet, secondary
 import { Sheet } from '@/components/ui/Sheet';
 import { useToast } from '@/components/ui/Toast';
 import { useDictionary } from '@/hooks/useDictionary';
-import { Notice, useGame } from '@/hooks/useGame';
-import { cellKey } from '@/lib/game/board';
+import { isTypedLetter, isTypedMark, Notice, useGame } from '@/hooks/useGame';
+import { cellKey, isMainRow } from '@/lib/game/board';
 import { GRID_ROWS } from '@/lib/game/constants';
 import type { BotLevel } from '@/lib/game/bot';
-import { fromWire, GameState, MoveRecord, PlayerId, toWire, WireState } from '@/lib/game/state';
+import { describeSettings } from '@/lib/game/settings';
+import { fromWire, GameState, MoveRecord, PlayerId, timePenalty, toWire, WireState } from '@/lib/game/state';
 import { beaconLeave, getPusher, roomChannel, sendRoomEvent } from '@/lib/client/realtime';
-import { clearSolo, recordMatch, saveSolo } from '@/lib/client/storage';
+import { clearSolo, firstTime, recordMatch, saveSolo } from '@/lib/client/storage';
+
+const tileName = (t: string) => (t === '0' ? 'ตัวว่าง' : t);
 
 export type GameSetup =
   | { mode: 'solo'; state: GameState; level: BotLevel; playerName: string }
@@ -53,6 +56,63 @@ export function GameScreen({ setup, onExit, onRematch }: { setup: GameSetup; onE
 
   const [sheet, setSheet] = useState<null | 'exchange' | 'bag' | 'rules' | 'log' | 'leave'>(null);
   const [zoomed, setZoomed] = useState(false);
+
+  // ---- Who starts, and one-time tips ------------------------------------------------------
+  const announced = useRef(false);
+  useEffect(() => {
+    if (announced.current || game.version !== 1 || game.history.length) return;
+    announced.current = true;
+    const o = game.opening;
+    const starter = names[game.current];
+    toast(o ? `จับเบี้ยเสี่ยงทาย: ${names[1]} ได้ “${tileName(o[1])}” ${names[2]} ได้ “${tileName(o[2])}”` : `${starter} เริ่มก่อน`, {
+      body: o ? `${starter} เริ่มก่อน (ตัวว่างก่อน แล้วเรียง ก ถึง ฮ สระอยู่ท้ายสุด)` : undefined,
+      ms: 4500,
+    });
+    if (firstTime('cursor')) {
+      setTimeout(
+        () => toast('เคล็ดลับ: แตะช่องว่างบนกระดานก่อน แล้วแตะเบี้ยเรียงตามคำ', { body: 'แตะช่องเดิมอีกครั้งเพื่อสลับแนวนอนและแนวตั้ง ลากเบี้ยวางหรือสลับที่ในมือก็ได้', ms: 7000 }),
+        6500,
+      );
+    }
+  }, [game, names, toast]);
+
+  const tilesOnBoard = game.grid.reduce((n, row, r) => n + (isMainRow(r) ? row.filter(Boolean).length : 0), 0);
+  const plays = game.history.filter((h) => h.kind === 'play').length;
+  useEffect(() => {
+    if (plays >= 2 && firstTime('clear')) {
+      toast('กติกาคำคม: คำเก่าถูกยกออกจากกระดาน', { body: 'หลังลงคำแต่ละตา กระดานจะเหลือเฉพาะคำที่เพิ่งลง แล้วต่อจากคำเหล่านั้น', ms: 7000 });
+    }
+  }, [plays, tilesOnBoard, toast]);
+
+  // ---- Typing on a computer keyboard ------------------------------------------------------
+  const keys = useRef(ctl);
+  useEffect(() => {
+    keys.current = ctl;
+  });
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (document.querySelector('dialog[open]')) return;
+      if (e.target instanceof Element && e.target.closest('input, textarea, select, [contenteditable]')) return;
+      const c = keys.current;
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        void c.submit();
+      } else if (e.key === 'Escape') {
+        c.recallAll();
+        c.clearCursor();
+      } else if (e.key === 'Backspace') {
+        e.preventDefault();
+        c.undoLast();
+      } else if (e.key.length === 1 && isTypedLetter(e.key)) {
+        if (c.typeLetter(e.key)) e.preventDefault();
+      } else if (e.key.length === 1 && isTypedMark(e.key)) {
+        if (c.typeMark(e.key)) e.preventDefault();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   // ---- Online: receive the other player's moves -----------------------------------------
   const latest = useRef(game);
@@ -136,7 +196,9 @@ export function GameScreen({ setup, onExit, onRematch }: { setup: GameSetup; onE
     game.status === 'over'
       ? 'จบเกมแล้ว'
       : ctl.isMyTurn
-        ? 'แตะเบี้ยในมือ แล้วแตะช่องบนกระดาน'
+        ? ctl.cursor
+          ? 'แตะเบี้ยเรียงตามคำ หรือพิมพ์บนแป้นพิมพ์'
+          : 'แตะเบี้ยแล้วแตะช่อง หรือแตะช่องก่อนแล้วแตะเบี้ยเรียงตามคำ'
         : ctl.botThinking
           ? 'บอทกำลังคิด…'
           : `รอ ${names[game.current]} เล่น…`;
@@ -164,7 +226,7 @@ export function GameScreen({ setup, onExit, onRematch }: { setup: GameSetup; onE
           </div>
         </header>
 
-        <ScoreBar game={game} me={me} names={names} onBag={() => setSheet('bag')} />
+        <ScoreBar game={game} me={me} names={names} turnStart={ctl.turnStart} onBag={() => setSheet('bag')} />
 
         <div className={zoomed ? '-mx-3 overflow-x-auto px-3 pb-1' : ''}>
           <div className={`board-frame ${zoomed ? 'board-zoomed' : ''}`}>
@@ -173,6 +235,7 @@ export function GameScreen({ setup, onExit, onRematch }: { setup: GameSetup; onE
               blanks={ctl.displayBlanks}
               draftKeys={draftKeys}
               lastKeys={lastKeys}
+              cursor={ctl.isMyTurn ? ctl.cursor : null}
               canMark={canMark}
               interactive={game.status === 'playing'}
               onCell={ctl.tapCell}
@@ -180,9 +243,16 @@ export function GameScreen({ setup, onExit, onRematch }: { setup: GameSetup; onE
           </div>
         </div>
 
-        <MovePreview evaluation={ctl.evaluation} status={status} dictionaryReady={!!dictionary} />
+        <MovePreview evaluation={ctl.evaluation} status={status} dictionaryReady={!!dictionary} strict={game.settings.strict} />
 
-        <Rack rack={ctl.rack} used={ctl.usedIndexes} selected={ctl.selected} onSelect={ctl.selectRack} />
+        <Rack
+          rack={ctl.rack}
+          used={ctl.usedIndexes}
+          selected={ctl.selected}
+          onSelect={ctl.selectRack}
+          onMove={ctl.moveRackTile}
+          onDropToBoard={ctl.dropTile}
+        />
 
         <div className="grid grid-cols-4 gap-2">
           <button type="button" className={secondaryBtn} onClick={ctl.recallAll} disabled={!hasTiles && ctl.draft.length === 0}>
@@ -194,9 +264,9 @@ export function GameScreen({ setup, onExit, onRematch }: { setup: GameSetup; onE
           <button type="button" className={secondaryBtn} onClick={() => setSheet('exchange')} disabled={!ctl.isMyTurn || !!ctl.busy}>
             แลกเบี้ย
           </button>
-          {setup.mode === 'solo' ? (
+          {setup.mode === 'solo' && ctl.hints !== 0 ? (
             <button type="button" className={secondaryBtn} onClick={ctl.hint} disabled={!ctl.isMyTurn || !!ctl.busy}>
-              {ctl.busy === 'hint' ? 'กำลังหา…' : 'คำใบ้'}
+              {ctl.busy === 'hint' ? 'กำลังหา…' : ctl.hints === null ? 'คำใบ้' : `คำใบ้ (${ctl.hints})`}
             </button>
           ) : (
             <button type="button" className={secondaryBtn} onClick={() => setSheet('log')}>
@@ -223,6 +293,10 @@ export function GameScreen({ setup, onExit, onRematch }: { setup: GameSetup; onE
       </div>
 
       <aside className="hidden w-full rounded-2xl bg-white p-4 lg:block lg:max-w-sm">
+        <p className="mb-3 text-xs leading-relaxed text-kram-500">{describeSettings(game.settings, { hints: setup.mode === 'solo' })}</p>
+        <p className="mb-3 text-xs leading-relaxed text-kram-500">
+          แป้นพิมพ์: แตะช่องเริ่มแล้วพิมพ์คำ (พิมพ์สระและวรรณยุกต์ตามได้เลย) Enter ลงคำ Backspace ย้อน Esc เก็บคืน
+        </p>
         <h2 className="mb-2 font-display text-lg font-bold">ประวัติการเล่น</h2>
         <MoveLog history={game.history} names={names} me={me} />
       </aside>
@@ -230,7 +304,7 @@ export function GameScreen({ setup, onExit, onRematch }: { setup: GameSetup; onE
       <PickerSheet ctl={ctl} />
       <ExchangeSheet open={sheet === 'exchange'} onClose={() => setSheet(null)} ctl={ctl} />
       <BagSheet open={sheet === 'bag'} onClose={() => setSheet(null)} game={game} me={me} />
-      <RulesSheet open={sheet === 'rules'} onClose={() => setSheet(null)} />
+      <RulesSheet open={sheet === 'rules'} onClose={() => setSheet(null)} settings={describeSettings(game.settings, { hints: setup.mode === 'solo' })} />
       <Sheet open={sheet === 'log'} onClose={() => setSheet(null)} title="ประวัติการเล่น">
         <MoveLog history={game.history} names={names} me={me} />
       </Sheet>
@@ -324,12 +398,13 @@ function GameOver({
           <div key={p} className={`rounded-xl p-4 ${result.winner === p ? 'bg-kram-900 text-ivory' : 'bg-kram-50 text-kram-900'}`}>
             <p className="truncate text-sm">{names[p]}</p>
             <p className="font-display text-4xl font-bold tabular-nums">{game.scores[p]}</p>
-            {result.adjustments[p] !== 0 && (
+            {result.adjustments[p] + timePenalty(game, p) !== 0 && (
               <p className="text-xs opacity-75">
-                {result.adjustments[p] > 0 ? 'โบนัสท้ายเกม +' : 'หักเบี้ยในมือ '}
-                {result.adjustments[p]}
+                {result.adjustments[p] + timePenalty(game, p) > 0 ? 'โบนัสเบี้ยหมดมือ +' : 'หักเบี้ยในมือ '}
+                {result.adjustments[p] + timePenalty(game, p)}
               </p>
             )}
+            {timePenalty(game, p) > 0 && <p className="text-xs opacity-75">ปรับเวลาเกิน −{timePenalty(game, p)}</p>}
           </div>
         ))}
       </div>

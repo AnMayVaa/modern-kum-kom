@@ -1,6 +1,6 @@
-// Grid helpers. See constants.ts for how the 31×15 grid maps onto the 15×15 board.
+// Grid helpers. See constants.ts for how the 19×15 grid maps onto the 15×9 board.
 
-import { BOARD_LAYOUT, BOARD_SIZE, GRID_ROWS, Premium } from './constants';
+import { BOARD_LAYOUT, BOARD_COLS, GRID_ROWS, Premium } from './constants';
 import { clusterText, isLowerContent } from './thai';
 
 export type Grid = (string | null)[][];
@@ -15,11 +15,11 @@ export const parseKey = (key: string): Coord => {
   return { r, c };
 };
 
-export const createGrid = (): Grid => Array.from({ length: GRID_ROWS }, () => Array<string | null>(BOARD_SIZE).fill(null));
+export const createGrid = (): Grid => Array.from({ length: GRID_ROWS }, () => Array<string | null>(BOARD_COLS).fill(null));
 export const cloneGrid = (grid: Grid): Grid => grid.map((row) => [...row]);
 
 export const isMainRow = (r: number) => r % 2 === 1;
-export const inBounds = (r: number, c: number) => r >= 0 && r < GRID_ROWS && c >= 0 && c < BOARD_SIZE;
+export const inBounds = (r: number, c: number) => r >= 0 && r < GRID_ROWS && c >= 0 && c < BOARD_COLS;
 export const boardRow = (r: number) => (r - 1) / 2;
 
 export const premiumAt = (r: number, c: number): Premium => (isMainRow(r) ? BOARD_LAYOUT[boardRow(r)][c] : null);
@@ -28,7 +28,7 @@ export const hasTile = (grid: Grid, r: number, c: number) => inBounds(r, c) && i
 
 export function isBoardEmpty(grid: Grid): boolean {
   for (let r = 1; r < GRID_ROWS; r += 2) {
-    for (let c = 0; c < BOARD_SIZE; c++) if (grid[r][c]) return false;
+    for (let c = 0; c < BOARD_COLS; c++) if (grid[r][c]) return false;
   }
   return true;
 }

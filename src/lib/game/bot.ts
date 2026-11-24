@@ -3,7 +3,7 @@
 // tiles) and adding the free vowels and tone marks a word needs. Each fitting move is then
 // checked with evaluateMove, so the bot plays by exactly the same rules as a person.
 
-import { BOARD_SIZE, GRID_ROWS, STAR } from './constants';
+import { BOARD_COLS, BOARD_ROWS, GRID_ROWS, STAR } from './constants';
 import { cellKey, Grid, isBoardEmpty } from './board';
 import { Dictionary, DictEntry } from './dictionary';
 import { evaluateMove, Placement } from './rules';
@@ -106,29 +106,32 @@ export function generateMoves(
   const maxNew = rack.length;
 
   // Words the rack can build on its own (used for spans that contain no board tiles).
-  const rackOnly: number[][] = Array.from({ length: BOARD_SIZE + 1 }, () => []);
+  const rackOnly: number[][] = Array.from({ length: BOARD_COLS + 1 }, () => []);
   missing.forEach((m, i) => {
     if (m >= 0 && m <= blankCount) rackOnly[entries[i].cells.length].push(i);
   });
 
   const results = new Map<string, CandidateMove>();
-  const occupied = (p: Pos) => p.r >= 1 && p.r < GRID_ROWS && p.c >= 0 && p.c < BOARD_SIZE && !!grid[p.r][p.c];
+  const occupied = (p: Pos) => p.r >= 1 && p.r < GRID_ROWS && p.c >= 0 && p.c < BOARD_COLS && !!grid[p.r][p.c];
 
-  const lines: { positions: Pos[]; perp: (p: Pos) => Pos[] }[] = [];
+  // Each line knows where the star falls in it, for the opening move.
+  const lines: { positions: Pos[]; perp: (p: Pos) => Pos[]; star: number }[] = [];
   for (let r = 1; r < GRID_ROWS; r += 2) {
     if (first && r !== STAR.r) continue;
     lines.push({
-      positions: Array.from({ length: BOARD_SIZE }, (_, c) => ({ r, c })),
+      star: STAR.c,
+      positions: Array.from({ length: BOARD_COLS }, (_, c) => ({ r, c })),
       perp: (p) => [
         { r: p.r - 2, c: p.c },
         { r: p.r + 2, c: p.c },
       ],
     });
   }
-  for (let c = 0; c < BOARD_SIZE; c++) {
+  for (let c = 0; c < BOARD_COLS; c++) {
     if (first && c !== STAR.c) continue;
     lines.push({
-      positions: Array.from({ length: BOARD_SIZE }, (_, i) => ({ r: i * 2 + 1, c })),
+      star: (STAR.r - 1) / 2,
+      positions: Array.from({ length: BOARD_ROWS }, (_, i) => ({ r: i * 2 + 1, c })),
       perp: (p) => [
         { r: p.r, c: p.c - 1 },
         { r: p.r, c: p.c + 1 },
@@ -136,28 +139,29 @@ export function generateMoves(
     });
   }
 
-  for (const { positions, perp } of lines) {
+  for (const { positions, perp, star } of lines) {
     if (Date.now() > deadline) break;
+    const size = positions.length;
 
     // A square is "hot" if a word covering it would touch the existing board.
     const filled = positions.map(occupied);
     const hot = positions.map((p, i) => filled[i] || perp(p).some(occupied));
     const hotPrefix = [0];
     hot.forEach((h, i) => hotPrefix.push(hotPrefix[i] + (h ? 1 : 0)));
-    if (!first && hotPrefix[BOARD_SIZE] === 0) continue;
+    if (!first && hotPrefix[size] === 0) continue;
 
-    for (let s = 0; s < BOARD_SIZE; s++) {
+    for (let s = 0; s < size; s++) {
       if (s > 0 && filled[s - 1]) continue;
       const fixed: number[] = [];
-      for (let len = 1; s + len <= BOARD_SIZE; len++) {
+      for (let len = 1; s + len <= size; len++) {
         const end = s + len - 1;
         if (filled[end]) fixed.push(end - s);
         if (len < 2) continue;
         if (len - fixed.length > maxNew) break;
-        if (s + len < BOARD_SIZE && filled[s + len]) continue;
+        if (s + len < size && filled[s + len]) continue;
         if (fixed.length === len) continue;
         if (first) {
-          if (s > STAR.c || end < STAR.c) continue; // the star is the 8th square of its row and column
+          if (s > star || end < star) continue;
         } else if (hotPrefix[s + len] - hotPrefix[s] === 0) continue;
 
         let candidates: number[] | undefined;

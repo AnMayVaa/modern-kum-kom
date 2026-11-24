@@ -9,6 +9,10 @@ import { SiteCredit } from '@/components/SiteCredit';
 import { Wordmark } from '@/components/ui/Tile';
 import { useDictionary } from '@/hooks/useDictionary';
 import { BOT_LEVELS, BotLevel } from '@/lib/game/bot';
+import { describeSettings } from '@/lib/game/settings';
+import type { GameSettings } from '@/lib/game/state';
+import { SetupForm } from '@/components/game/SetupForm';
+import { Sheet } from '@/components/ui/Sheet';
 import { LETTER_SCORES } from '@/lib/game/constants';
 import { normalizeThai, parseWord } from '@/lib/game/thai';
 import { loadStats, resetStats, Stats } from '@/lib/client/storage';
@@ -68,6 +72,8 @@ export function MenuScreen({
   name,
   level,
   onLevel,
+  settings,
+  onSettings,
   hasSavedGame,
   onSolo,
   onResume,
@@ -79,6 +85,8 @@ export function MenuScreen({
   name: string;
   level: BotLevel;
   onLevel: (l: BotLevel) => void;
+  settings: GameSettings;
+  onSettings: (s: GameSettings) => void;
   hasSavedGame: boolean;
   onSolo: () => void;
   onResume: () => void;
@@ -88,6 +96,7 @@ export function MenuScreen({
   onRename: () => void;
 }) {
   const [rules, setRules] = useState(false);
+  const [setup, setSetup] = useState(false);
   return (
     <main className="flex min-h-dvh flex-col items-center px-5 py-10 sm:justify-center">
       <h1 className="sr-only">คำคม เกมต่อคำภาษาไทยออนไลน์</h1>
@@ -124,6 +133,14 @@ export function MenuScreen({
               </button>
             ))}
           </div>
+          <button
+            type="button"
+            onClick={() => setSetup(true)}
+            className="mb-3 flex w-full items-center justify-between gap-3 rounded-xl px-1 text-left text-[13px] leading-snug text-kram-700 hover:text-kram-950"
+          >
+            <span>{describeSettings(settings)}</span>
+            <span className="shrink-0 font-semibold text-kram-900 underline underline-offset-2">ตั้งค่า</span>
+          </button>
           <button type="button" className={`${hasSavedGame ? secondaryBtn : primaryBtn} w-full`} onClick={onSolo}>
             {hasSavedGame ? 'เริ่มเกมใหม่' : 'เริ่มเกม'}
           </button>
@@ -145,6 +162,19 @@ export function MenuScreen({
       </div>
       <SiteCredit className="mt-10" />
       <RulesSheet open={rules} onClose={() => setRules(false)} />
+      <Sheet open={setup} onClose={() => setSetup(false)} title="ตั้งค่าเกมกับบอท">
+        <SetupForm settings={settings} onSettings={onSettings} level={level} onLevel={onLevel} />
+        <button
+          type="button"
+          className={`${primaryBtn} mt-6 w-full py-3.5`}
+          onClick={() => {
+            setSetup(false);
+            onSolo();
+          }}
+        >
+          เริ่มเกมด้วยค่านี้
+        </button>
+      </Sheet>
     </main>
   );
 }

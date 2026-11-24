@@ -52,3 +52,16 @@ export function countTiles(tiles: readonly string[]): [string, number][] {
   const order = Object.keys(INITIAL_LETTER_QUANTITIES);
   return [...counts.entries()].sort((a, b) => order.indexOf(a[0]) - order.indexOf(b[0]));
 }
+
+const VOWEL_TILES = 'ะาำเแโใไ';
+
+/**
+ * Order used to decide who starts (official rule): a blank beats everything, then ก to ฮ,
+ * and vowel tiles come last. A dual tile counts as its better letter. Lower is better.
+ */
+export function startRank(tile: string): number {
+  if (isBlankTile(tile)) return 0;
+  return Math.min(
+    ...tileOptions(tile).map((ch) => (VOWEL_TILES.includes(ch) ? 1000 + VOWEL_TILES.indexOf(ch) : ch.charCodeAt(0) - 0x0e00)),
+  );
+}

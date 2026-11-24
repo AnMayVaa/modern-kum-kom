@@ -6,7 +6,7 @@ export const SITE = {
   title: 'คำคม — เกมต่อคำภาษาไทยออนไลน์ | Kum-Kom Thai Crossword Game',
   shortTitle: 'คำคม เกมต่อคำภาษาไทย',
   description:
-    'เล่นคำคม (Kum-Kom) เกมต่อคำภาษาไทยบนกระดาน 15×15 ฟรีบนเว็บ แข่งกับบอทสามระดับหรือชวนเพื่อนเล่นออนไลน์ ตรวจคำจากพจนานุกรม 25,551 คำ รองรับสระ วรรณยุกต์ เบี้ยว่าง และช่องคูณแต้ม',
+    'เล่นคำคม (Kum-Kom) เกมต่ออักษรภาษาไทยตามกระดานและกติกาจริง ฟรีบนเว็บ แข่งกับบอทสามระดับหรือชวนเพื่อนเล่นออนไลน์ ตรวจคำจากพจนานุกรม 25,551 คำ เลือกจับเวลาและคำใบ้ได้',
   descriptionEn:
     'Play Kum-Kom (คำคม), the Thai-language crossword board game like Scrabble, free in the browser: against a bot with three levels or online with a friend, with a 25,551-word Thai dictionary.',
   keywords: [

@@ -8,10 +8,12 @@ Made by **พิทักษ์ ปทุมวัน (Pitak "Ohm" Patumwan)**, 
 
 ## Features
 
-- **15×15 Kum-Kom board** with 2L/3L/4L letter squares, 2W/3W word squares and the centre star.
+- **The official Kum-Kom board**: 15 columns × 9 rows with the printed board's six special squares (red 3× word, pink 2× word, purple 5×, orange 4×, green 3×, light blue 2× letter) and the centre star.
+- **The official rules** (rule sheet of October 2552): earlier words come off the board after every turn, replacing a letter in the opposite direction, drawing a tile to decide who starts, exchanging only while 9+ tiles are in the bag, tone marks over ำ (ต่ำ), and the end-of-game scoring.
 - **Real Thai spelling.** Consonants and leading vowels are tiles. Upper and lower vowels and tone marks are free, go in the thin rows above and below each letter, and stack the way Thai does (ที่, ปุ่ม, เกี่ยว).
 - **Live move preview.** While you place tiles you see every word you are making, whether each one is in the dictionary, and the exact score, before you press submit.
-- **Full rules:** tiles in one line with no gaps, connected to the board, first word through the star, up to one tile placed over an existing one per turn, blank tiles (0 points), dual tiles such as ฆ/ซ, bingo bonus for 6–9 tiles, exchange or pass, and the end-of-game rules (going out, or six scoreless turns).
+- **Game options:** bot level, a turn or game clock (official 2 min/turn or 25 min/game with a 10-point-per-minute penalty), hint limits, and a tournament word check where an invalid word loses the turn.
+- **Easy tile placement:** tap a tile then a square, drag tiles onto the board, or tap a square and then tap tiles in order; drag tiles in the rack to reorder them. On a computer, click a square and type the word (vowels and tone marks included); Enter plays, Backspace undoes, Esc recalls.
 - **A bot that actually plays Thai.** It searches the whole dictionary on every row and column, adds the vowels and tone marks a word needs, uses blanks and dual tiles, and runs in a Web Worker so the board never freezes. Easy, normal and hard levels.
 - **Hints** in solo games: the best move for your rack, placed on the board for you to check.
 - **Online play** with quick matching or a private room code, a share link (`/?room=123456`), a ready check, and the win going to the remaining player if someone leaves.
@@ -90,7 +92,7 @@ src/
     └── server/             # MongoDB, word cache, rooms, Pusher
 ```
 
-The board is a 31×15 grid: odd rows are the 15 letter rows, and the even rows between them hold the free vowels and tone marks of the letter above or below. Every move goes through `evaluateMove` in `src/lib/game/rules.ts`, so the live preview, the submit check, the hint and the bot all follow exactly the same rules. Each game action is a pure function from one game state to the next. Online, the player who moves sends the new state to the room, and each side keeps whichever version is newer.
+The board is a 19×15 grid: odd rows are the 9 letter rows, and the even rows between them hold the free vowels and tone marks of the letter above or below. Every move goes through `evaluateMove` in `src/lib/game/rules.ts`, so the live preview, the submit check, the hint and the bot all follow exactly the same rules. Each game action is a pure function from one game state to the next. Online, the player who moves sends the new state to the room, and each side keeps whichever version is newer.
 
 ### Site details and SEO
 

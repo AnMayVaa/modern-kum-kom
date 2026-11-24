@@ -1,7 +1,7 @@
 // In-memory dictionary. The full word list (~26k words) is small enough to load once in
 // the browser, which makes word checks instant and lets the bot search every word.
 
-import { BOARD_SIZE } from './constants';
+import { BOARD_COLS } from './constants';
 import { normalizeThai, parseWord, WordCell } from './thai';
 
 export interface DictEntry {
@@ -41,7 +41,7 @@ export class Dictionary {
       const out: DictEntry[] = [];
       for (const text of this.list) {
         const cells = parseWord(text);
-        if (cells && cells.length >= 2 && cells.length <= BOARD_SIZE) out.push({ text, cells });
+        if (cells && cells.length >= 2 && cells.length <= BOARD_COLS) out.push({ text, cells });
       }
       this.parsed = out;
     }

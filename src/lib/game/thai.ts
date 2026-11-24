@@ -23,6 +23,11 @@ export const isLowerContent = (content: string | null | undefined) =>
 // order Thai text is normally typed in (e.g. ป + ุ + ่ + ม = ปุ่ม).
 const markRank = (ch: string) => (isLowerMark(ch) || isUpperVowel(ch) ? 0 : ch === '์' || ch === 'ํ' ? 2 : 1);
 
+const SARA_AM = 'ำ';
+// On the board a tone mark in words like ต่ำ sits above the ำ tile (official rule 5), which
+// reads as "ตำ่"; in normal Thai text the tone comes before ำ.
+const TONE_AFTER_AM = /ำ([่้๊๋])/g;
+
 /** Sorts the marks after each letter into the canonical order. */
 export function normalizeThai(text: string): string {
   const chars = [...text.normalize('NFC')];
@@ -39,7 +44,7 @@ export function normalizeThai(text: string): string {
     if (marks.length > 1) marks.sort((a, b) => markRank(a) - markRank(b));
     out += marks.join('');
   }
-  return out;
+  return out.replace(TONE_AFTER_AM, `$1${SARA_AM}`);
 }
 
 export interface WordCell {
@@ -58,9 +63,17 @@ export interface WordCell {
 export function parseWord(word: string): WordCell[] | null {
   const chars = [...normalizeThai(word)];
   const cells: WordCell[] = [];
-  for (const ch of chars) {
+  let toneForAm = '';
+  for (let i = 0; i < chars.length; i++) {
+    const ch = chars[i];
     if (isMainChar(ch)) {
-      cells.push({ base: ch, upper: '', lower: '' });
+      cells.push({ base: ch, upper: ch === SARA_AM ? toneForAm : '', lower: '' });
+      toneForAm = '';
+      continue;
+    }
+    // A tone mark right before ำ goes above the ำ tile, as the official rules say.
+    if (isTopMark(ch) && chars[i + 1] === SARA_AM && ch !== '์') {
+      toneForAm = ch;
       continue;
     }
     const cell = cells[cells.length - 1];

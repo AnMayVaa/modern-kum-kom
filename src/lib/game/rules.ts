@@ -1,25 +1,31 @@
 // Move validation and scoring. One function, evaluateMove, is the single source of truth
 // used by the player's live preview, the submit button, the bot and the hint.
 
-import { BINGO_BONUS, BOARD_SIZE, LETTER_SCORES, STAR } from './constants';
+import { BINGO_BONUS, BOARD_COLS, LETTER_SCORES, STAR } from './constants';
 import {
   cellKey,
   clusterAt,
   cloneGrid,
   Coord,
+  createGrid,
   Grid,
   hasTile,
   isBoardEmpty,
   isMainRow,
+  lowerMarksAt,
   markHost,
   premiumAt,
+  upperMarksAt,
 } from './board';
 import { isLowerContent, isMainChar, isValidMarkContent, normalizeThai } from './thai';
 
 export interface Placement {
   r: number;
   c: number;
-  /** The letter for a tile square, or the full content of a mark cell (e.g. "ี่"). */
+  /**
+   * The letter for a tile square, or the full content of a mark cell (e.g. "ี่"). An empty
+   * string removes the marks of a letter that is being replaced.
+   */
   char: string;
   /** Tile only: placed from a blank, so it scores 0. */
   isBlank?: boolean;
@@ -77,7 +83,7 @@ export function findWords(grid: Grid, touched: Coord[]): WordInfo[] {
     let c0 = c;
     let c1 = c;
     while (c0 > 0 && grid[r][c0 - 1]) c0--;
-    while (c1 < BOARD_SIZE - 1 && grid[r][c1 + 1]) c1++;
+    while (c1 < BOARD_COLS - 1 && grid[r][c1 + 1]) c1++;
     if (c1 > c0 && !found.has(`h${r},${c0}`)) {
       const cells: Coord[] = [];
       for (let x = c0; x <= c1; x++) cells.push({ r, c: x });
@@ -110,7 +116,7 @@ export function scoreWord(grid: Grid, word: WordInfo, newTiles: Set<string>, bla
     let part = `${base}`;
     if (newTiles.has(key)) {
       const premium = premiumAt(r, c);
-      if (premium === '2L' || premium === '3L' || premium === '4L') {
+      if (premium === '2L' || premium === '3L' || premium === '4L' || premium === '5L') {
         const n = Number(premium[0]);
         value = base * n;
         part = `${base}×${n}`;
@@ -126,7 +132,25 @@ export function scoreWord(grid: Grid, word: WordInfo, newTiles: Set<string>, bla
   return { ...word, letterPoints, wordMultiplier, score, detail };
 }
 
-/** A mark placement may only add marks to a cell, never replace what is already there. */
+/**
+ * Official rule: after a turn, every earlier word comes off the board and only the words
+ * made in that turn stay (with their vowels and tone marks).
+ */
+export function keepOnlyWords(grid: Grid, blanks: Set<string>, words: WordInfo[]): { grid: Grid; blanks: Set<string> } {
+  const kept = createGrid();
+  const keptBlanks = new Set<string>();
+  for (const { r, c } of words.flatMap((w) => w.cells)) {
+    kept[r][c] = grid[r][c];
+    if (blanks.has(cellKey(r, c))) keptBlanks.add(cellKey(r, c));
+    const up = upperMarksAt(grid, r, c);
+    const down = lowerMarksAt(grid, r, c);
+    if (up) kept[r - 1][c] = up;
+    if (down) kept[r + 1][c] = down;
+  }
+  return { grid: kept, blanks: keptBlanks };
+}
+
+/** A mark placement may only add marks to a cell, never replace what is already there (unless its letter is being replaced). */
 function extendsMarks(before: string | null, after: string): boolean {
   if (!before) return true;
   if (isLowerContent(before) || isLowerContent(after)) return false;
@@ -163,28 +187,42 @@ export function evaluateMove(
   const seen = new Set<string>();
   for (const p of placements) {
     const key = cellKey(p.r, p.c);
-    if (p.r < 0 || p.r >= grid.length || p.c < 0 || p.c >= BOARD_SIZE) return result('ตำแหน่งอยู่นอกกระดาน');
+    if (p.r < 0 || p.r >= grid.length || p.c < 0 || p.c >= BOARD_COLS) return result('ตำแหน่งอยู่นอกกระดาน');
     if (seen.has(key)) return result('วางซ้ำช่องเดิม');
     seen.add(key);
   }
   if (tiles.length === 0) return result('วางเบี้ยตัวอักษรอย่างน้อย 1 ตัว');
   if (tiles.some((t) => !isMainChar(t.char))) return result('มีเบี้ยที่ไม่ใช่ตัวอักษร');
-  if (marks.some((m) => !isValidMarkContent(m.char))) return result('สระหรือวรรณยุกต์ซ้อนกันไม่ถูกต้อง');
-  if (marks.some((m) => !extendsMarks(baseGrid[m.r][m.c], m.char))) return result('ช่องนี้มีสระหรือวรรณยุกต์อยู่แล้ว');
 
-  const overwrites = tiles.filter((t) => baseGrid[t.r][t.c]).length;
-  if (overwrites > 1) return result('วางทับเบี้ยเดิมได้ตาละ 1 ตัว');
+  // Replacing a letter on the board (official rule: ต่อคำที่สมบูรณ์แล้วโดยมีตัวอักษรตัวหนึ่งเข้าไปแทนที่).
+  const replaced = tiles.filter((t) => baseGrid[t.r][t.c]);
+  if (replaced.length > 1) return result('แทนที่ตัวอักษรบนกระดานได้ตาละ 1 ตัว');
+  const replacedKey = replaced.length ? cellKey(replaced[0].r, replaced[0].c) : null;
+  // Marks of the replaced letter may be swapped or taken off; marks of other letters stay.
+  const ownedByReplaced = (m: Placement) => {
+    const before = baseGrid[m.r][m.c];
+    const host = before ? markHost(m.r, m.c, before) : null;
+    return !!host && cellKey(host.r, host.c) === replacedKey;
+  };
+  for (const m of marks) {
+    if (m.char === '') {
+      if (!ownedByReplaced(m)) return result('เอาสระหรือวรรณยุกต์ออกได้เฉพาะของตัวอักษรที่ถูกแทนที่');
+      continue;
+    }
+    if (!isValidMarkContent(m.char)) return result('สระหรือวรรณยุกต์ซ้อนกันไม่ถูกต้อง');
+    if (!ownedByReplaced(m) && !extendsMarks(baseGrid[m.r][m.c], m.char)) return result('ช่องนี้มีสระหรือวรรณยุกต์อยู่แล้ว');
+  }
 
   for (const t of tiles) {
     grid[t.r][t.c] = t.char;
     if (t.isBlank) blanks.add(cellKey(t.r, t.c));
     else blanks.delete(cellKey(t.r, t.c));
   }
-  for (const m of marks) grid[m.r][m.c] = m.char;
+  for (const m of marks) grid[m.r][m.c] = m.char || null;
 
+  const sameRow = tiles.every((t) => t.r === tiles[0].r);
+  const sameCol = tiles.every((t) => t.c === tiles[0].c);
   if (tiles.length > 1) {
-    const sameRow = tiles.every((t) => t.r === tiles[0].r);
-    const sameCol = tiles.every((t) => t.c === tiles[0].c);
     if (!sameRow && !sameCol) return result('เบี้ยต้องเรียงอยู่ในแถวเดียวหรือคอลัมน์เดียว');
     if (sameRow) {
       const cs = tiles.map((t) => t.c);
@@ -199,11 +237,22 @@ export function evaluateMove(
     }
   }
 
+  if (replaced.length) {
+    const { r, c, char } = replaced[0];
+    if (baseGrid[r][c] === char) return result('ตัวอักษรที่แทนที่ต้องไม่ซ้ำกับตัวเดิม');
+    const inRow = hasTile(baseGrid, r, c - 1) || hasTile(baseGrid, r, c + 1);
+    const inCol = hasTile(baseGrid, r - 2, c) || hasTile(baseGrid, r + 2, c);
+    if (inRow && inCol) return result('แทนที่ตัวอักษรที่เป็นจุดตัดของสองคำไม่ได้');
+    if (tiles.length < 2 || (inRow && sameRow) || (inCol && sameCol)) {
+      return result('แทนที่ตัวอักษรแล้วต้องต่อคำใหม่ในแนวตรงข้ามกับคำเดิม');
+    }
+  }
+
   if (isBoardEmpty(baseGrid)) {
     if (!tiles.some((t) => t.r === STAR.r && t.c === STAR.c)) return result('ตาแรกต้องวางผ่านช่องดาว ★');
   } else {
     const connected =
-      overwrites > 0 || tiles.some((t) => neighbours(t.r, t.c).some((n) => hasTile(baseGrid, n.r, n.c)));
+      replaced.length > 0 || tiles.some((t) => neighbours(t.r, t.c).some((n) => hasTile(baseGrid, n.r, n.c)));
     if (!connected) return result('ต้องวางต่อกับคำที่อยู่บนกระดาน');
   }
 
@@ -212,7 +261,7 @@ export function evaluateMove(
 
   const covered = new Set(tileWords.flatMap((w) => w.cells.map((c) => cellKey(c.r, c.c))));
   const hosts: Coord[] = [];
-  for (const m of marks) {
+  for (const m of marks.filter((mk) => mk.char)) {
     const host = markHost(m.r, m.c, m.char);
     if (!host || !hasTile(grid, host.r, host.c)) return result('สระและวรรณยุกต์ต้องอยู่บนหรือใต้ตัวอักษร');
     if (!covered.has(cellKey(host.r, host.c))) return result('สระและวรรณยุกต์ต้องอยู่บนคำที่กำลังลง');
